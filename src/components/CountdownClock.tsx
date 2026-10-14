@@ -1,131 +1,182 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 
 interface CountdownClockProps {
   expiresAt: number;
   uploadedAt?: number;
   onExpire?: () => void;
   showBar?: boolean;
+  size?: 'sm' | 'md' | 'lg';
 }
 
 export default function CountdownClock({
   expiresAt,
   uploadedAt,
   onExpire,
-  showBar = true
+  showBar = true,
+  size = 'md'
 }: CountdownClockProps) {
-  const [timeLeft, setTimeLeft] = useState<{
-    hours: number;
-    minutes: number;
-    seconds: number;
-    totalMs: number;
-    isExpired: boolean;
-  }>({
-    hours: 0,
-    minutes: 0,
-    seconds: 0,
-    totalMs: 0,
-    isExpired: false
-  });
+  // Store remaining milliseconds in state so render is 100% pure (no Date.now() in render)
+  const [remainingMs, setRemainingMs] = useState<number | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
+  const onExpireRef = useRef(onExpire);
 
   useEffect(() => {
-    const calculateTime = () => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
+
+  useEffect(() => {
+    const update = () => {
       const now = Date.now();
       const diff = expiresAt - now;
-
       if (diff <= 0) {
-        setTimeLeft({ hours: 0, minutes: 0, seconds: 0, totalMs: 0, isExpired: true });
-        if (onExpire) onExpire();
-        return;
+        setRemainingMs(0);
+        setIsExpired(true);
+        if (onExpireRef.current) {
+          onExpireRef.current();
+        }
+      } else {
+        setRemainingMs(diff);
+        setIsExpired(false);
       }
-
-      const totalSeconds = Math.floor(diff / 1000);
-      const hours = Math.floor(totalSeconds / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const seconds = totalSeconds % 60;
-
-      setTimeLeft({ hours, minutes, seconds, totalMs: diff, isExpired: false });
     };
 
-    calculateTime();
-    const interval = setInterval(calculateTime, 1000);
-    return () => clearInterval(interval);
-  }, [expiresAt, onExpire]);
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [expiresAt]);
 
-  if (timeLeft.isExpired) {
+  if (remainingMs === null) {
+    // Initial server or pre-mount render: render stable skeleton
     return (
       <div style={{
         display: 'inline-flex',
         alignItems: 'center',
         gap: '6px',
-        padding: '5px 10px',
-        borderRadius: 'var(--radius-sm)',
+        padding: size === 'sm' ? '3px 8px' : '6px 12px',
+        borderRadius: '8px',
         background: '#f1f5f9',
-        border: '1px solid var(--border-subtle)',
-        color: 'var(--text-muted)',
-        fontWeight: 600,
         fontFamily: 'var(--font-mono)',
-        fontSize: '0.8rem'
+        fontSize: size === 'sm' ? '0.74rem' : '0.86rem',
+        color: '#94a3b8'
       }}>
-        <span>EXPIRED / VANISHED</span>
+        <span className="pulse-dot"></span>
+        <span>Calculating TTL...</span>
       </div>
     );
   }
 
-  let percentRemaining = 100;
-  if (uploadedAt && expiresAt > uploadedAt) {
-    const totalLifetime = expiresAt - uploadedAt;
-    percentRemaining = Math.max(0, Math.min(100, (timeLeft.totalMs / totalLifetime) * 100));
-  }
-
-  const pad = (n: number) => n.toString().padStart(2, '0');
-
-  return (
-    <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '5px' }}>
+  if (isExpired || remainingMs <= 0) {
+    return (
       <div style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '8px',
-        padding: '5px 12px',
-        borderRadius: 'var(--radius-sm)',
-        background: 'var(--white)',
-        border: '1px solid var(--border-subtle)',
-        boxShadow: 'var(--shadow-subtle)',
-        fontFamily: 'var(--font-mono)'
+        gap: '6px',
+        padding: size === 'sm' ? '3px 8px' : '6px 12px',
+        borderRadius: '8px',
+        background: '#fef2f2',
+        border: '1px solid #fecaca',
+        color: '#dc2626',
+        fontWeight: 700,
+        fontFamily: 'var(--font-mono)',
+        fontSize: size === 'sm' ? '0.74rem' : '0.86rem'
       }}>
-        <span className="pulse-dot"></span>
-        <div style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: '2px',
-          fontSize: '0.94rem',
-          fontWeight: 700,
-          color: 'var(--text-main)'
-        }}>
-          <span>{pad(timeLeft.hours)}</span>
-          <span style={{ opacity: 0.4 }}>:</span>
-          <span>{pad(timeLeft.minutes)}</span>
-          <span style={{ opacity: 0.4 }}>:</span>
-          <span>{pad(timeLeft.seconds)}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="15" y1="9" x2="9" y2="15"></line>
+          <line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+        <span>VANISHED FROM CLOUD</span>
+      </div>
+    );
+  }
+
+  const totalSecs = Math.floor(remainingMs / 1000);
+  const days = Math.floor(totalSecs / 86400);
+  const hours = Math.floor((totalSecs % 86400) / 3600);
+  const minutes = Math.floor((totalSecs % 3600) / 60);
+  const seconds = totalSecs % 60;
+
+  const pad = (n: number) => n.toString().padStart(2, '0');
+
+  // Percentage calculation
+  let percentRemaining = 100;
+  if (uploadedAt && expiresAt > uploadedAt) {
+    const totalLifetime = expiresAt - uploadedAt;
+    percentRemaining = Math.max(0, Math.min(100, (remainingMs / totalLifetime) * 100));
+  }
+
+  const isUrgent = remainingMs < 1000 * 60 * 5; // Under 5 minutes
+
+  return (
+    <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '5px' }}>
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: size === 'sm' ? '6px' : '8px',
+          padding: size === 'sm' ? '4px 8px' : size === 'lg' ? '10px 18px' : '6px 12px',
+          borderRadius: '8px',
+          background: isUrgent ? '#fff1f2' : '#ffffff',
+          border: `1px solid ${isUrgent ? '#fda4af' : '#bfdbfe'}`,
+          boxShadow: isUrgent ? '0 0 10px rgba(239, 68, 68, 0.15)' : 'var(--shadow-subtle)',
+          fontFamily: 'var(--font-mono)'
+        }}
+      >
+        <span
+          className="pulse-dot"
+          style={{
+            backgroundColor: isUrgent ? '#e11d48' : '#2563eb',
+            animation: isUrgent ? 'pulse 0.8s infinite' : undefined
+          }}
+        ></span>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: '2px',
+            fontSize: size === 'sm' ? '0.78rem' : size === 'lg' ? '1.3rem' : '0.94rem',
+            fontWeight: 700,
+            color: isUrgent ? '#e11d48' : '#0f172a'
+          }}
+        >
+          {days > 0 && (
+            <>
+              <span>{days}d</span>
+              <span style={{ opacity: 0.4, margin: '0 1px' }}>:</span>
+            </>
+          )}
+          <span>{pad(hours)}</span>
+          <span style={{ opacity: 0.4, margin: '0 1px' }}>:</span>
+          <span>{pad(minutes)}</span>
+          <span style={{ opacity: 0.4, margin: '0 1px' }}>:</span>
+          <span>{pad(seconds)}</span>
         </div>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-          left
+
+        <span style={{
+          fontSize: size === 'sm' ? '0.62rem' : '0.7rem',
+          color: isUrgent ? '#e11d48' : '#64748b',
+          fontWeight: 600,
+          textTransform: 'uppercase'
+        }}>
+          {isUrgent ? 'expiring soon' : 'remaining'}
         </span>
       </div>
 
       {showBar && (
         <div style={{
           width: '100%',
-          height: '3px',
-          background: 'var(--border-subtle)',
+          height: size === 'sm' ? '2px' : '3px',
+          background: '#e2e8f0',
           borderRadius: '999px',
           overflow: 'hidden'
         }}>
           <div style={{
             height: '100%',
             width: `${percentRemaining}%`,
-            background: 'var(--blue-600)',
+            background: isUrgent ? '#e11d48' : '#2563eb',
             transition: 'width 1s linear'
           }}></div>
         </div>

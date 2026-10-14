@@ -1,6 +1,7 @@
 {
-  "name": "dp",
-  "version": "0.1.0",
+  "name": "vanish",
+  "version": "1.0.0",
+  "description": "Zero-Knowledge Ephemeral Cloud File Sharing Protocol — IIIT Vadodara CSE Design Project",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",

@@ -1,19 +1,35 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import Link from 'next/link';
-import { getCurrentUser, setMockUser } from '@/services/storage';
+import { getCurrentUser, setMockUser, subscribeToStore } from '@/services/storage';
+import { generateSecureId } from '@/services/crypto';
+import { playClickSound, playSuccessSound } from '@/services/sound';
+import { useToast } from '@/components/Toast';
 import { UserSession } from '@/types';
 
 export default function AuthPage() {
+  const { showToast } = useToast();
   const [currentUser, setCurrentUserState] = useState<UserSession | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoginTab, setIsLoginTab] = useState(true);
-  const [authSuccess, setAuthSuccess] = useState(false);
+  const [activeTab, setActiveTab] = useState<'signin' | 'register' | 'apikeys'>('signin');
+  const [apiKeys, setApiKeys] = useState<{ id: string; key: string; label: string; created: string }[]>([
+    { id: 'key-1', key: 'vanish_live_9a4f8b2c1d0e4f7a', label: 'Production Webhook Sync', created: '2026-10-12' }
+  ]);
+
+  const [, startTransition] = useTransition();
+
+  const loadUser = () => {
+    startTransition(() => {
+      setCurrentUserState(getCurrentUser());
+    });
+  };
 
   useEffect(() => {
-    setCurrentUserState(getCurrentUser());
+    loadUser();
+    const unsubscribe = subscribeToStore(loadUser);
+    return () => unsubscribe();
   }, []);
 
   const teamPresets = [
@@ -21,88 +37,124 @@ export default function AuthPage() {
       name: 'Meet Dhorajiya',
       email: 'meet@iiitv.ac.in',
       id: '202451053',
-      role: 'Project Contributor'
+      role: 'Student Engineer'
     },
     {
       name: 'Dhairya Desai',
       email: 'dhairya@iiitv.ac.in',
       id: '202451051',
-      role: 'Project Contributor'
+      role: 'Student Engineer'
     },
     {
       name: 'Jatan Bhatt',
       email: 'jatan@iiitv.ac.in',
       id: '202451032',
-      role: 'Project Contributor'
+      role: 'Student Engineer'
     }
   ];
 
   const handleSelectPreset = (preset: typeof teamPresets[0]) => {
+    playSuccessSound();
     const userSession: UserSession = {
       isLoggedIn: true,
       name: preset.name,
       email: preset.email,
-      token: `mock-jwt-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${btoa(JSON.stringify({ sub: preset.id, name: preset.name, email: preset.email, iat: Date.now() }))}.signature`
+      studentId: preset.id,
+      token: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIke3ByZXNldC5pZH0iLCJuYW1lIjoiJHtwcmVzZXQubmFtZX0iLCJlbWFpbCI6IiR7cHJlc2V0LmVtYWlsfSIsImlzcyI6InZhbmlzaC5hcHAifQ.signature`
     };
     setMockUser(userSession);
     setCurrentUserState(userSession);
-    setAuthSuccess(true);
-    setTimeout(() => setAuthSuccess(false), 2500);
+    showToast({
+      type: 'success',
+      title: 'Authenticated as ' + preset.name,
+      message: 'Active session loaded with IIIT Vadodara student credentials.'
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
 
+    playSuccessSound();
+    const namePart = email.split('@')[0];
     const userSession: UserSession = {
       isLoggedIn: true,
-      name: email.split('@')[0],
+      name: namePart.charAt(0).toUpperCase() + namePart.slice(1),
       email: email,
-      token: `mock-jwt-user-${Date.now()}`
+      token: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${btoa(email)}.signature`
     };
     setMockUser(userSession);
     setCurrentUserState(userSession);
-    setAuthSuccess(true);
-    setTimeout(() => setAuthSuccess(false), 2500);
+    showToast({
+      type: 'success',
+      title: 'Session Authenticated',
+      message: `Welcome, ${userSession.name}!`
+    });
+  };
+
+  const handleCreateApiKey = () => {
+    playClickSound();
+    const newKey = {
+      id: `key-${Date.now()}`,
+      key: `vanish_live_${generateSecureId(24)}`,
+      label: 'Automated Upload Script',
+      created: 'Just now'
+    };
+    setApiKeys((prev) => [newKey, ...prev]);
+    showToast({
+      type: 'success',
+      title: 'API Secret Created',
+      message: 'New key generated with full storage write privileges.'
+    });
+  };
+
+  const handleDeleteApiKey = (id: string) => {
+    playClickSound();
+    setApiKeys((prev) => prev.filter((k) => k.id !== id));
+    showToast({
+      type: 'info',
+      title: 'Key Revoked',
+      message: 'API token deactivated and blocked from authentication.'
+    });
   };
 
   return (
-    <div style={{ maxWidth: '540px', margin: '36px auto 80px' }}>
+    <div style={{ maxWidth: '640px', margin: '36px auto 90px' }}>
       
       {/* Title */}
-      <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '28px' }}>
         <div style={{
           display: 'inline-flex',
           alignItems: 'center',
           gap: '8px',
-          padding: '3px 10px',
+          padding: '4px 14px',
           borderRadius: 'var(--radius-full)',
           background: 'var(--bg-blue-tint)',
           border: '1px solid var(--border-blue)',
-          marginBottom: '8px'
+          marginBottom: '10px'
         }}>
           <span className="pulse-dot"></span>
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--blue-700)' }}>
-            JWT Authentication Layer
+          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--blue-700)', letterSpacing: '0.02em' }}>
+            JWT AUTHENTICATION & IDENTITY PORTAL
           </span>
         </div>
 
-        <h1 style={{ fontSize: '2.1rem', marginBottom: '4px', color: 'var(--text-main)' }}>
-          Secure <span className="blue-text">Account Portal</span>
+        <h1 style={{ fontSize: '2.4rem', marginBottom: '6px', color: '#0f172a' }}>
+          Identity & <span className="blue-text">API Tokens</span>
         </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
-          Ties uploads to your personal identity, unlocks download analytics, and enables file management.
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem' }}>
+          Ties uploads to your verified credentials, unlocks personal audit trails, and provides programmatic API access.
         </p>
       </div>
 
-      <div className="glass-panel" style={{ padding: '28px', background: 'var(--white)' }}>
+      <div className="glass-panel" style={{ padding: '32px', background: '#ffffff', borderRadius: '18px' }}>
         
         {/* Quick Team Switcher Presets */}
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--blue-700)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
-            Quick 1-Click Login (IIIT Vadodara Team):
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--blue-700)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+            Instant 1-Click Login (IIIT Vadodara Project Authors):
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '6px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px' }}>
             {teamPresets.map((preset) => {
               const isSelected = currentUser?.email === preset.email;
               return (
@@ -111,20 +163,20 @@ export default function AuthPage() {
                   type="button"
                   onClick={() => handleSelectPreset(preset)}
                   style={{
-                    padding: '7px 9px',
-                    borderRadius: 'var(--radius-sm)',
-                    background: isSelected ? 'var(--blue-600)' : '#f8fafc',
-                    border: `1px solid ${isSelected ? 'var(--blue-600)' : 'var(--border-subtle)'}`,
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    background: isSelected ? 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' : '#f8fafc',
+                    border: `1px solid ${isSelected ? '#2563eb' : 'var(--border-subtle)'}`,
                     cursor: 'pointer',
                     textAlign: 'left',
-                    transition: 'all 0.2s ease',
-                    boxShadow: 'var(--shadow-subtle)'
+                    transition: 'all 0.15s ease',
+                    boxShadow: isSelected ? '0 4px 12px rgba(37, 99, 235, 0.25)' : 'var(--shadow-subtle)'
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: '0.82rem', color: isSelected ? '#ffffff' : 'var(--text-main)' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: isSelected ? '#ffffff' : '#0f172a' }}>
                     {preset.name}
                   </div>
-                  <div style={{ fontSize: '0.68rem', color: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '0.72rem', color: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}>
                     ID: {preset.id}
                   </div>
                 </button>
@@ -133,133 +185,190 @@ export default function AuthPage() {
           </div>
         </div>
 
-        {/* Tab switch */}
+        {/* Tab switcher */}
         <div style={{
           display: 'flex',
           borderBottom: '1px solid var(--border-subtle)',
-          marginBottom: '18px'
+          marginBottom: '22px',
+          gap: '12px'
         }}>
           <button
-            onClick={() => setIsLoginTab(true)}
+            onClick={() => { playClickSound(); setActiveTab('signin'); }}
             style={{
-              padding: '7px 14px',
+              padding: '8px 12px',
               background: 'none',
               border: 'none',
-              borderBottom: isLoginTab ? '2px solid var(--blue-600)' : '2px solid transparent',
-              color: isLoginTab ? 'var(--blue-700)' : 'var(--text-muted)',
-              fontWeight: 600,
-              fontSize: '0.88rem',
+              borderBottom: activeTab === 'signin' ? '2.5px solid var(--blue-600)' : '2.5px solid transparent',
+              color: activeTab === 'signin' ? 'var(--blue-700)' : 'var(--text-muted)',
+              fontWeight: 700,
+              fontSize: '0.9rem',
               cursor: 'pointer'
             }}
           >
             Sign In (JWT)
           </button>
           <button
-            onClick={() => setIsLoginTab(false)}
+            onClick={() => { playClickSound(); setActiveTab('register'); }}
             style={{
-              padding: '7px 14px',
+              padding: '8px 12px',
               background: 'none',
               border: 'none',
-              borderBottom: !isLoginTab ? '2px solid var(--blue-600)' : '2px solid transparent',
-              color: !isLoginTab ? 'var(--blue-700)' : 'var(--text-muted)',
-              fontWeight: 600,
-              fontSize: '0.88rem',
+              borderBottom: activeTab === 'register' ? '2.5px solid var(--blue-600)' : '2.5px solid transparent',
+              color: activeTab === 'register' ? 'var(--blue-700)' : 'var(--text-muted)',
+              fontWeight: 700,
+              fontSize: '0.9rem',
               cursor: 'pointer'
             }}
           >
             Create Account
           </button>
+          <button
+            onClick={() => { playClickSound(); setActiveTab('apikeys'); }}
+            style={{
+              padding: '8px 12px',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'apikeys' ? '2.5px solid var(--blue-600)' : '2.5px solid transparent',
+              color: activeTab === 'apikeys' ? 'var(--blue-700)' : 'var(--text-muted)',
+              fontWeight: 700,
+              fontSize: '0.9rem',
+              cursor: 'pointer'
+            }}
+          >
+            Developer API Keys ({apiKeys.length})
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-soft)', marginBottom: '4px' }}>
-              Email Address
-            </label>
-            <input
-              type="email"
-              required
-              placeholder="e.g. 202451053@iiitv.ac.in"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '9px 11px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'var(--white)',
-                border: '1px solid var(--border-medium)',
-                color: 'var(--text-main)',
-                fontSize: '0.86rem',
-                outline: 'none'
-              }}
-            />
-          </div>
+        {/* Form or API Keys Tab */}
+        {activeTab !== 'apikeys' ? (
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-soft)', marginBottom: '5px' }}>
+                Email Address
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="e.g. 202451053@iiitv.ac.in"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: '#ffffff',
+                  border: '1px solid var(--border-medium)',
+                  color: '#0f172a',
+                  fontSize: '0.9rem',
+                  outline: 'none'
+                }}
+              />
+            </div>
 
-          <div style={{ marginBottom: '18px' }}>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-soft)', marginBottom: '4px' }}>
-              Password
-            </label>
-            <input
-              type="password"
-              placeholder="••••••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '9px 11px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'var(--white)',
-                border: '1px solid var(--border-medium)',
-                color: 'var(--text-main)',
-                fontSize: '0.86rem',
-                outline: 'none'
-              }}
-            />
-          </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-soft)', marginBottom: '5px' }}>
+                Password
+              </label>
+              <input
+                type="password"
+                placeholder="••••••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: '#ffffff',
+                  border: '1px solid var(--border-medium)',
+                  color: '#0f172a',
+                  fontSize: '0.9rem',
+                  outline: 'none'
+                }}
+              />
+            </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary"
-            style={{ width: '100%', padding: '10px', fontSize: '0.92rem' }}
-          >
-            <span>{isLoginTab ? 'Authenticate Session' : 'Register and Generate JWT'}</span>
-          </button>
-        </form>
+            <button
+              type="submit"
+              className="btn btn-primary btn-lg"
+              style={{ width: '100%' }}
+            >
+              <span>{activeTab === 'signin' ? 'Authenticate Session' : 'Register and Issue JWT'}</span>
+            </button>
+          </form>
+        ) : (
+          /* Developer API Keys Tab */
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                Programmatic API keys for CLI scripts & CI/CD uploads.
+              </div>
+              <button
+                onClick={handleCreateApiKey}
+                className="btn btn-primary btn-sm"
+              >
+                + New Secret Key
+              </button>
+            </div>
 
-        {authSuccess && (
-          <div style={{
-            marginTop: '12px',
-            padding: '7px 10px',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--bg-blue-tint)',
-            border: '1px solid var(--border-blue)',
-            color: 'var(--blue-700)',
-            fontSize: '0.78rem',
-            textAlign: 'center',
-            fontWeight: 600
-          }}>
-            Session updated for {currentUser?.name}! Token active.
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {apiKeys.map((key) => (
+                <div
+                  key={key.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 14px',
+                    borderRadius: '8px',
+                    background: '#f8fafc',
+                    border: '1px solid var(--border-subtle)',
+                    flexWrap: 'wrap',
+                    gap: '8px'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.86rem', color: '#0f172a' }}>
+                      {key.label}
+                    </div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--blue-700)', marginTop: '2px' }}>
+                      {key.key.substring(0, 16)}••••••••••••••••
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleDeleteApiKey(key.id)}
+                    className="btn btn-sm btn-outline"
+                    style={{ color: 'var(--rose-600)' }}
+                  >
+                    Revoke
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
+        {/* JWT Inspector Panel */}
         {currentUser && (
           <div style={{
-            marginTop: '18px',
-            padding: '10px',
-            borderRadius: 'var(--radius-sm)',
-            background: '#f8fafc',
-            border: '1px solid var(--border-subtle)',
+            marginTop: '24px',
+            padding: '16px',
+            borderRadius: '10px',
+            background: '#081a36',
+            color: '#bfdbfe',
             fontFamily: 'var(--font-mono)'
           }}>
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '3px' }}>
-              Simulated JWT Token Decoded Payload:
+            <div style={{ fontSize: '0.72rem', color: '#93c5fd', textTransform: 'uppercase', fontWeight: 700, marginBottom: '6px' }}>
+              Decoded JWT Token Payload:
             </div>
-            <pre style={{ fontSize: '0.72rem', color: 'var(--blue-800)', overflowX: 'auto', margin: 0 }}>
+            <pre style={{ fontSize: '0.76rem', color: '#e0f2fe', overflowX: 'auto', margin: 0, lineHeight: 1.5 }}>
 {JSON.stringify({
-  sub: currentUser.email,
+  sub: currentUser.studentId || currentUser.email,
   name: currentUser.name,
-  role: 'authenticated_user',
-  iss: 'vanish.app/auth',
+  email: currentUser.email,
+  role: 'authenticated_engineer',
+  institute: 'Indian Institute of Information Technology Vadodara',
+  iss: 'vanish.app/auth/v2',
   status: 'active_session'
 }, null, 2)}
             </pre>
@@ -268,9 +377,13 @@ export default function AuthPage() {
 
       </div>
 
-      <div style={{ textAlign: 'center', marginTop: '18px' }}>
-        <Link href="/" className="btn btn-outline btn-sm">
-          <span>Back to Zero Page Navigator</span>
+      <div style={{ textAlign: 'center', marginTop: '24px' }}>
+        <Link
+          href="/"
+          onClick={() => playClickSound()}
+          className="btn btn-outline btn-sm"
+        >
+          <span>Back to Platform Hub</span>
         </Link>
       </div>
 

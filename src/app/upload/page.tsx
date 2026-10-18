@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import Link from 'next/link';
 import { ExpiryDuration, FileRecord } from '@/types';
-import { saveNewFile } from '@/services/storage';
+import { uploadRealFile, getCurrentUser } from '@/services/storage';
 
 export default function UploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -18,6 +18,7 @@ export default function UploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStep, setUploadStep] = useState('');
   const [createdRecord, setCreatedRecord] = useState<FileRecord | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,12 +35,14 @@ export default function UploadPage() {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       setSelectedFile(e.dataTransfer.files[0]);
+      setErrorMessage(null);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setSelectedFile(e.target.files[0]);
+      setErrorMessage(null);
     }
   };
 
@@ -49,41 +52,42 @@ export default function UploadPage() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const startUpload = () => {
+  const startUpload = async () => {
     if (!selectedFile) return;
 
     setIsUploading(true);
-    setUploadProgress(15);
+    setErrorMessage(null);
+    setUploadProgress(20);
     setUploadStep('Validating file integrity and MIME type...');
 
-    setTimeout(() => {
-      setUploadProgress(45);
-      setUploadStep('Hashing access token and setting TTL...');
-    }, 400);
+    try {
+      setTimeout(() => {
+        setUploadProgress(50);
+        setUploadStep('Streaming payload to cloud storage...');
+      }, 300);
 
-    setTimeout(() => {
-      setUploadProgress(80);
-      setUploadStep('Uploading object payload to storage...');
-    }, 900);
+      setTimeout(() => {
+        setUploadProgress(80);
+        setUploadStep('Generating cryptographic ID and setting TTL...');
+      }, 700);
 
-    setTimeout(() => {
-      setUploadProgress(100);
-      const selectedOption = expiryOptions.find((o) => o.value === expiry) || expiryOptions[3];
-      const newRec = saveNewFile({
-        name: selectedFile.name,
-        size: selectedFile.size,
-        mimeType: selectedFile.type || 'application/octet-stream',
-        expiresAt: Date.now() + selectedOption.durationMs,
-        durationLabel: selectedOption.label,
-        hasPassword: enablePassword && password.trim().length > 0,
-        password: enablePassword && password.trim().length > 0 ? password.trim() : undefined,
-        maxDownloads: enableLimit ? maxDownloads : null,
-        ownerEmail: 'meet@iiitv.ac.in',
+      const currentUser = getCurrentUser();
+      const record = await uploadRealFile(selectedFile, {
+        duration: expiry,
+        password: enablePassword && password.trim() ? password.trim() : undefined,
+        maxDownloads: enableLimit && maxDownloads > 0 ? maxDownloads : null,
+        ownerEmail: currentUser?.email || 'user@vanish.dev',
       });
 
+      setUploadProgress(100);
+      setUploadStep('Complete!');
+      setCreatedRecord(record);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      setErrorMessage(msg);
+    } finally {
       setIsUploading(false);
-      setCreatedRecord(newRec);
-    }, 1500);
+    }
   };
 
   const resetUpload = () => {
@@ -93,6 +97,7 @@ export default function UploadPage() {
     setPassword('');
     setEnablePassword(false);
     setEnableLimit(false);
+    setErrorMessage(null);
   };
 
   const getShareUrl = (id: string) => {
@@ -111,7 +116,7 @@ export default function UploadPage() {
   };
 
   return (
-    <div style={{ maxWidth: '720px', margin: '36px auto 80px' }}>
+    <div style={{ maxWidth: '680px', margin: '36px auto 80px' }}>
       
       {/* Page Title */}
       <div style={{ textAlign: 'center', marginBottom: '28px' }}>
@@ -126,20 +131,20 @@ export default function UploadPage() {
           marginBottom: '10px'
         }}>
           <span className="pulse-dot"></span>
-          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--blue-700)' }}>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--blue-700)' }}>
             Ephemeral Upload Studio
           </span>
         </div>
-        <h1 style={{ fontSize: '2.4rem', marginBottom: '6px', color: 'var(--text-main)' }}>
+        <h1 style={{ fontSize: '2.4rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
           Upload and <span className="blue-text">Vanish</span>
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.94rem' }}>
-          Share any file securely. Once the timer reaches zero, the file is genuinely expunged from storage forever.
+          Secure, temporary cloud file sharing. Files are genuinely deleted from storage once their TTL timer expires.
         </p>
       </div>
 
       {!createdRecord ? (
-        <div className="glass-panel" style={{ padding: '28px', background: 'var(--white)' }}>
+        <div className="glass-panel" style={{ padding: '28px', background: '#ffffff' }}>
           
           {/* Dropzone */}
           <div
@@ -147,13 +152,13 @@ export default function UploadPage() {
             onDrop={handleFileDrop}
             onClick={() => fileInputRef.current?.click()}
             style={{
-              border: '1px dashed var(--border-medium)',
+              border: '1px dashed #b2ddff',
               borderRadius: 'var(--radius-sm)',
-              background: 'var(--bg-blue-tint)',
+              background: '#f8fbff',
               padding: '36px 20px',
               textAlign: 'center',
               cursor: 'pointer',
-              transition: 'border-color 0.2s ease',
+              transition: 'all 0.15s ease',
               marginBottom: '20px'
             }}
           >
@@ -168,16 +173,16 @@ export default function UploadPage() {
               width: '46px',
               height: '46px',
               borderRadius: 'var(--radius-sm)',
-              background: 'var(--white)',
-              border: '1px solid var(--border-blue)',
+              background: '#ffffff',
+              border: '1px solid #d1e9ff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               margin: '0 auto 12px',
               color: 'var(--blue-600)',
-              boxShadow: 'var(--shadow-subtle)'
+              boxShadow: 'var(--shadow-xs)'
             }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="17 8 12 3 7 8"></polyline>
                 <line x1="12" y1="3" x2="12" y2="15"></line>
@@ -189,11 +194,11 @@ export default function UploadPage() {
                 <span className="badge badge-blue" style={{ marginBottom: '8px' }}>
                   File Selected
                 </span>
-                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '3px' }}>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '3px' }}>
                   {selectedFile.name}
                 </div>
                 <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                  {formatFileSize(selectedFile.size)} / {selectedFile.type || 'Custom Format'}
+                  {formatFileSize(selectedFile.size)} / {selectedFile.type || 'Binary Format'}
                 </div>
                 <button
                   type="button"
@@ -209,11 +214,11 @@ export default function UploadPage() {
               </div>
             ) : (
               <div>
-                <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '3px' }}>
+                <div style={{ fontSize: '0.98rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '3px' }}>
                   Drag and drop file here, or <span style={{ color: 'var(--blue-600)', textDecoration: 'underline' }}>browse</span>
                 </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Supports documents, photos, archives up to 100MB
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                  Documents, images, archives up to 100MB
                 </div>
               </div>
             )}
@@ -221,10 +226,10 @@ export default function UploadPage() {
 
           {/* Expiry Duration Selection */}
           <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-soft)', marginBottom: '7px' }}>
+            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '7px' }}>
               Select Self-Destruct Lifetime (TTL Expiry):
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '8px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '8px' }}>
               {expiryOptions.map((opt) => {
                 const isSelected = expiry === opt.value;
                 return (
@@ -235,14 +240,14 @@ export default function UploadPage() {
                     style={{
                       padding: '9px 10px',
                       borderRadius: 'var(--radius-sm)',
-                      background: isSelected ? 'var(--blue-600)' : 'var(--white)',
-                      border: `1px solid ${isSelected ? 'var(--blue-600)' : 'var(--border-subtle)'}`,
-                      color: isSelected ? 'var(--white)' : 'var(--text-soft)',
+                      background: isSelected ? 'var(--blue-600)' : '#ffffff',
+                      border: `1px solid ${isSelected ? 'var(--blue-600)' : 'var(--border-medium)'}`,
+                      color: isSelected ? '#ffffff' : 'var(--text-secondary)',
                       cursor: 'pointer',
                       textAlign: 'center',
-                      transition: 'all 0.2s ease',
+                      transition: 'all 0.15s ease',
                       position: 'relative',
-                      boxShadow: isSelected ? 'none' : 'var(--shadow-subtle)'
+                      boxShadow: 'var(--shadow-xs)'
                     }}
                   >
                     {opt.badge && (
@@ -252,8 +257,8 @@ export default function UploadPage() {
                         right: '5px',
                         fontSize: '0.58rem',
                         fontWeight: 700,
-                        background: isSelected ? 'var(--white)' : 'var(--blue-600)',
-                        color: isSelected ? 'var(--blue-700)' : 'var(--white)',
+                        background: isSelected ? '#ffffff' : 'var(--blue-600)',
+                        color: isSelected ? 'var(--blue-700)' : '#ffffff',
                         padding: '1px 5px',
                         borderRadius: '999px',
                         textTransform: 'uppercase'
@@ -280,13 +285,13 @@ export default function UploadPage() {
             <div style={{
               padding: '14px',
               borderRadius: 'var(--radius-sm)',
-              background: '#f8fafc',
+              background: '#f9fafb',
               border: '1px solid var(--border-subtle)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: enablePassword ? '10px' : '0' }}>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-main)' }}>Password Protection</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Require password to download</div>
+                  <div style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-primary)' }}>Password Protection</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-light)' }}>Require password to download</div>
                 </div>
 
                 <input
@@ -308,11 +313,10 @@ export default function UploadPage() {
                       width: '100%',
                       padding: '8px 34px 8px 10px',
                       borderRadius: 'var(--radius-sm)',
-                      background: 'var(--white)',
+                      background: '#ffffff',
                       border: '1px solid var(--border-medium)',
-                      color: 'var(--text-main)',
-                      fontSize: '0.85rem',
-                      outline: 'none'
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem'
                     }}
                   />
                   <button
@@ -340,13 +344,13 @@ export default function UploadPage() {
             <div style={{
               padding: '14px',
               borderRadius: 'var(--radius-sm)',
-              background: '#f8fafc',
+              background: '#f9fafb',
               border: '1px solid var(--border-subtle)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: enableLimit ? '10px' : '0' }}>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-main)' }}>Download Limit</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Auto-destruct after N downloads</div>
+                  <div style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-primary)' }}>Download Limit</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-light)' }}>Auto-destruct after N downloads</div>
                 </div>
 
                 <input
@@ -366,7 +370,7 @@ export default function UploadPage() {
                   >
                     -
                   </button>
-                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-main)', minWidth: '70px', textAlign: 'center' }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)', minWidth: '70px', textAlign: 'center' }}>
                     {maxDownloads} {maxDownloads === 1 ? 'download' : 'downloads'}
                   </span>
                   <button
@@ -382,27 +386,41 @@ export default function UploadPage() {
 
           </div>
 
+          {errorMessage && (
+            <div style={{
+              padding: '8px 12px',
+              borderRadius: 'var(--radius-sm)',
+              background: '#fef3f2',
+              border: '1px solid #fee4e2',
+              color: '#b42318',
+              fontSize: '0.84rem',
+              marginBottom: '14px'
+            }}>
+              {errorMessage}
+            </div>
+          )}
+
           {/* Upload Progress Bar */}
           {isUploading ? (
             <div style={{
-              background: '#f8fafc',
+              background: '#f8fbff',
               borderRadius: 'var(--radius-sm)',
               padding: '16px',
-              border: '1px solid var(--border-subtle)',
+              border: '1px solid #b2ddff',
               marginBottom: '14px'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                 <span style={{ fontSize: '0.82rem', color: 'var(--blue-700)', fontWeight: 600 }}>
                   {uploadStep}
                 </span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-main)' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)' }}>
                   {uploadProgress}%
                 </span>
               </div>
               <div style={{
                 width: '100%',
                 height: '4px',
-                background: 'var(--border-subtle)',
+                background: '#eaecf0',
                 borderRadius: '999px',
                 overflow: 'hidden'
               }}>
@@ -410,7 +428,7 @@ export default function UploadPage() {
                   height: '100%',
                   width: `${uploadProgress}%`,
                   background: 'var(--blue-600)',
-                  transition: 'width 0.3s ease'
+                  transition: 'width 0.25s ease'
                 }}></div>
               </div>
             </div>
@@ -435,7 +453,7 @@ export default function UploadPage() {
         </div>
       ) : (
         /* Upload Success View */
-        <div className="glass-panel" style={{ padding: '32px', textAlign: 'center', background: 'var(--white)' }}>
+        <div className="glass-panel" style={{ padding: '32px', textAlign: 'center', background: '#ffffff' }}>
           
           <div style={{
             width: '46px',
@@ -454,21 +472,21 @@ export default function UploadPage() {
             </svg>
           </div>
 
-          <h2 style={{ fontSize: '1.5rem', marginBottom: '4px', color: 'var(--text-main)' }}>
+          <h2 style={{ fontSize: '1.5rem', marginBottom: '4px', color: 'var(--text-primary)' }}>
             File Uploaded and Link Active
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: '20px' }}>
-            <strong>{createdRecord.name}</strong> ({formatFileSize(createdRecord.size)}) is ready to share.
+            <strong>{createdRecord.name}</strong> ({formatFileSize(createdRecord.size)}) is stored and ready to share.
           </p>
 
           {/* Share Link Box */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            background: '#f8fafc',
+            background: '#f9fafb',
             border: '1px solid var(--border-subtle)',
             borderRadius: 'var(--radius-sm)',
-            padding: '5px 8px',
+            padding: '6px 10px',
             marginBottom: '16px',
             gap: '8px'
           }}>

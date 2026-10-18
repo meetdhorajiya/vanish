@@ -3,7 +3,7 @@
 import React, { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { FileRecord } from '@/types';
-import { getFileById, recordFileDownload } from '@/services/storage';
+import { fetchFileById, unlockFilePassword } from '@/services/storage';
 import CountdownClock from '@/components/CountdownClock';
 
 export default function RecipientPage({
@@ -18,53 +18,93 @@ export default function RecipientPage({
   const [loading, setLoading] = useState(true);
   const [passwordInput, setPasswordInput] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [unlockToken, setUnlockToken] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
-  // Preview state switcher for testing
+  // Testing override
   const [forcedState, setForcedState] = useState<'normal' | 'password' | 'expired' | 'exhausted' | null>(null);
 
   useEffect(() => {
-    const loaded = getFileById(fileId);
-    setFile(loaded);
-    setLoading(false);
+    let isMounted = true;
+    const load = async () => {
+      setLoading(true);
+      const loaded = await fetchFileById(fileId);
+      if (isMounted) {
+        setFile(loaded);
+        setLoading(false);
+        if (loaded && !loaded.hasPassword) {
+          setIsUnlocked(true);
+        }
+      }
+    };
 
-    if (loaded && !loaded.hasPassword) {
-      setIsUnlocked(true);
-    }
+    load();
+    return () => {
+      isMounted = false;
+    };
   }, [fileId]);
 
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!passwordInput.trim()) return;
 
-    if (passwordInput.trim() === (file.password || 'vanish123')) {
+    const res = await unlockFilePassword(fileId, passwordInput.trim());
+    if (res.success) {
       setIsUnlocked(true);
+      setUnlockToken(res.token || null);
       setPasswordError(false);
     } else {
       setPasswordError(true);
-      setTimeout(() => setPasswordError(false), 2000);
+      setTimeout(() => setPasswordError(false), 2500);
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!file) return;
 
-    const res = recordFileDownload(file.id);
-    if (res.success && res.file) {
-      setFile({ ...res.file });
+    setIsDownloading(true);
+    try {
+      const url = `/api/file/${file.id}/download${unlockToken ? `?token=${encodeURIComponent(unlockToken)}` : ''}`;
+      const res = await fetch(url);
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        alert(errorData.error || 'Failed to download file');
+        // Refresh metadata in case it expired or hit quota
+        const refreshed = await fetchFileById(file.id);
+        if (refreshed) setFile(refreshed);
+        return;
+      }
+
+      // Real binary download blob trigger
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+
       setDownloadSuccess(true);
 
-      const element = document.createElement('a');
-      const dummyContent = `Vanish Ephemeral File: ${file.name}\nSize: ${file.size} bytes\nUploaded: ${new Date(file.uploadedAt).toISOString()}\nExpires: ${new Date(file.expiresAt).toISOString()}\n\nThis file was securely transmitted via Vanish Cloud File Sharing.`;
-      const blob = new Blob([dummyContent], { type: 'text/plain' });
-      element.href = URL.createObjectURL(blob);
-      element.download = file.name;
-      document.body.appendChild(element);
-      element.click();
-      document.body.removeChild(element);
+      // Refresh file state to show updated download count or exhausted status
+      const refreshed = await fetchFileById(file.id);
+      if (refreshed) {
+        setFile(refreshed);
+      } else {
+        setFile({ ...file, downloadCount: file.downloadCount + 1 });
+      }
 
       setTimeout(() => setDownloadSuccess(false), 4000);
+    } catch (e) {
+      console.error('Download error:', e);
+      alert('Network error initiating download');
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -78,7 +118,7 @@ export default function RecipientPage({
     return (
       <div style={{ textAlign: 'center', padding: '80px 0' }}>
         <div className="pulse-dot" style={{ margin: '0 auto 12px' }}></div>
-        <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Decrypting link metadata...</div>
+        <div style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>Verifying link signature and TTL...</div>
       </div>
     );
   }
@@ -99,13 +139,13 @@ export default function RecipientPage({
         gap: '8px',
         padding: '6px 12px',
         borderRadius: 'var(--radius-sm)',
-        background: 'var(--white)',
+        background: '#ffffff',
         border: '1px solid var(--border-subtle)',
         marginBottom: '20px',
         fontSize: '0.76rem',
-        boxShadow: 'var(--shadow-subtle)'
+        boxShadow: 'var(--shadow-xs)'
       }}>
-        <span style={{ color: 'var(--text-muted)' }}>
+        <span style={{ color: 'var(--text-light)' }}>
           State Navigator:
         </span>
         <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
@@ -142,7 +182,7 @@ export default function RecipientPage({
 
       {/* 1. EXPIRED / VANISHED STATE */}
       {isExpired ? (
-        <div className="glass-panel" style={{ padding: '44px 28px', textAlign: 'center', background: 'var(--white)' }}>
+        <div className="glass-panel" style={{ padding: '44px 28px', textAlign: 'center', background: '#ffffff' }}>
           <div style={{
             width: '56px',
             height: '56px',
@@ -165,23 +205,23 @@ export default function RecipientPage({
             STATUS: PERMANENTLY DESTROYED
           </span>
 
-          <h1 style={{ fontSize: '1.9rem', marginBottom: '8px', color: 'var(--text-main)' }}>
+          <h1 style={{ fontSize: '1.9rem', marginBottom: '8px', color: 'var(--text-primary)' }}>
             This File Has Vanished
           </h1>
 
-          <p style={{ color: 'var(--text-soft)', fontSize: '0.92rem', lineHeight: 1.6, maxWidth: '420px', margin: '0 auto 16px' }}>
-            The designated lifetime for this share link has elapsed. Per the ephemeral security protocol, the file binary has been deleted from Cloudinary and all metadata purged from MongoDB.
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.6, maxWidth: '420px', margin: '0 auto 16px' }}>
+            The designated lifetime for this share link has elapsed. Per the ephemeral security protocol, the file binary has been deleted from cloud storage and metadata purged.
           </p>
 
           <div style={{
-            background: '#f8fafc',
+            background: '#f9fafb',
             border: '1px solid var(--border-subtle)',
             borderRadius: 'var(--radius-sm)',
             padding: '10px',
             maxWidth: '380px',
             margin: '0 auto 24px',
             fontSize: '0.78rem',
-            color: 'var(--text-muted)'
+            color: 'var(--text-light)'
           }}>
             Zero digital trace remains. No backups or cached copies are preserved.
           </div>
@@ -192,7 +232,7 @@ export default function RecipientPage({
         </div>
       ) : isExhausted ? (
         /* 2. DOWNLOAD LIMIT REACHED STATE */
-        <div className="glass-panel" style={{ padding: '44px 28px', textAlign: 'center', background: 'var(--white)' }}>
+        <div className="glass-panel" style={{ padding: '44px 28px', textAlign: 'center', background: '#ffffff' }}>
           <div style={{
             width: '56px',
             height: '56px',
@@ -216,12 +256,12 @@ export default function RecipientPage({
             DOWNLOAD LIMIT EXHAUSTED
           </span>
 
-          <h1 style={{ fontSize: '1.9rem', marginBottom: '8px', color: 'var(--text-main)' }}>
+          <h1 style={{ fontSize: '1.9rem', marginBottom: '8px', color: 'var(--text-primary)' }}>
             Quota Reached
           </h1>
 
-          <p style={{ color: 'var(--text-soft)', fontSize: '0.92rem', lineHeight: 1.6, maxWidth: '420px', margin: '0 auto 24px' }}>
-            The sender configured a strict maximum download cap for this file. The maximum allowed downloads have been reached, and this link has been permanently deactivated.
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.6, maxWidth: '420px', margin: '0 auto 24px' }}>
+            The sender configured a strict maximum download cap for this file. The maximum allowed downloads have been reached, and this link has auto-destructed.
           </p>
 
           <Link href="/upload" className="btn btn-outline">
@@ -230,7 +270,7 @@ export default function RecipientPage({
         </div>
       ) : needsPassword ? (
         /* 3. PASSWORD PROTECTED CHALLENGE */
-        <div className="glass-panel" style={{ padding: '40px 28px', textAlign: 'center', background: 'var(--white)' }}>
+        <div className="glass-panel" style={{ padding: '40px 28px', textAlign: 'center', background: '#ffffff' }}>
           <div style={{
             width: '50px',
             height: '50px',
@@ -253,11 +293,11 @@ export default function RecipientPage({
             PROTECTED FILE
           </span>
 
-          <h1 style={{ fontSize: '1.75rem', marginBottom: '6px', color: 'var(--text-main)' }}>
+          <h1 style={{ fontSize: '1.75rem', marginBottom: '6px', color: 'var(--text-primary)' }}>
             Password Required
           </h1>
 
-          <p style={{ color: 'var(--text-soft)', fontSize: '0.88rem', marginBottom: '20px' }}>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: '20px' }}>
             The sender protected <strong>{file?.name || 'this file'}</strong> with an access key.
           </p>
 
@@ -272,9 +312,9 @@ export default function RecipientPage({
                   width: '100%',
                   padding: '10px 12px',
                   borderRadius: 'var(--radius-sm)',
-                  background: 'var(--white)',
-                  border: `1px solid ${passwordError ? 'var(--blue-600)' : 'var(--border-medium)'}`,
-                  color: 'var(--text-main)',
+                  background: '#ffffff',
+                  border: `1px solid ${passwordError ? '#d92d20' : 'var(--border-medium)'}`,
+                  color: 'var(--text-primary)',
                   fontSize: '0.9rem',
                   outline: 'none',
                   textAlign: 'center',
@@ -282,7 +322,7 @@ export default function RecipientPage({
                 }}
               />
               {passwordError && (
-                <div style={{ color: 'var(--blue-700)', fontSize: '0.75rem', marginTop: '5px' }}>
+                <div style={{ color: '#d92d20', fontSize: '0.75rem', marginTop: '5px' }}>
                   Incorrect password. Please try again.
                 </div>
               )}
@@ -296,14 +336,14 @@ export default function RecipientPage({
               <span>Unlock and Decrypt</span>
             </button>
 
-            <div style={{ marginTop: '12px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            <div style={{ marginTop: '12px', fontSize: '0.72rem', color: 'var(--text-light)' }}>
               Demo test hint: Password is <code style={{ color: 'var(--blue-700)' }}>vanish123</code>
             </div>
           </form>
         </div>
       ) : (
         /* 4. ACTIVE READY STATE */
-        <div className="glass-panel" style={{ padding: '36px 28px', textAlign: 'center', background: 'var(--white)' }}>
+        <div className="glass-panel" style={{ padding: '36px 28px', textAlign: 'center', background: '#ffffff' }}>
           
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '18px' }}>
             <CountdownClock
@@ -332,8 +372,8 @@ export default function RecipientPage({
             </svg>
           </div>
 
-          <h1 style={{ fontSize: '1.6rem', marginBottom: '6px', wordBreak: 'break-word', color: 'var(--text-main)' }}>
-            {file?.name || 'IIITV_Design_Project_Report.pdf'}
+          <h1 style={{ fontSize: '1.6rem', marginBottom: '6px', wordBreak: 'break-word', color: 'var(--text-primary)' }}>
+            {file?.name || 'Confidential_Project_Document.pdf'}
           </h1>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
@@ -352,6 +392,7 @@ export default function RecipientPage({
 
           <button
             onClick={handleDownload}
+            disabled={isDownloading}
             className="btn btn-primary"
             style={{
               padding: '12px 24px',
@@ -359,7 +400,8 @@ export default function RecipientPage({
               width: '100%',
               maxWidth: '300px',
               margin: '0 auto 14px',
-              display: 'flex'
+              display: 'flex',
+              opacity: isDownloading ? 0.7 : 1
             }}
           >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -367,7 +409,7 @@ export default function RecipientPage({
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            <span>Download File Now</span>
+            <span>{isDownloading ? 'Streaming from Storage...' : 'Download File Now'}</span>
           </button>
 
           {downloadSuccess && (
@@ -382,12 +424,12 @@ export default function RecipientPage({
               maxWidth: '300px',
               margin: '0 auto 12px'
             }}>
-              Download initiated successfully!
+              Download completed!
             </div>
           )}
 
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-            Uploaded via Vanish Ephemeral Sharing: Automatic cleanup guaranteed on expiry
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-light)' }}>
+            Served directly from Vanish Ephemeral Storage: Zero-trace cleanup guaranteed
           </div>
         </div>
       )}

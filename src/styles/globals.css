@@ -1,49 +1,51 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-  /* Whitish Theme: White & Blue Shades Only */
-  --bg-main: #f8fafc;
+  /* Ultra-Minimal Whitish Trust Palette */
+  --bg-main: #fcfcfd;
   --bg-surface: #ffffff;
   --bg-card: #ffffff;
-  --bg-card-hover: #f1f5f9;
-  --bg-blue-tint: #eff6ff;
+  --bg-card-subtle: #f9fafb;
+  --bg-blue-tint: #eff8ff;
 
-  /* Blue Shades */
-  --blue-950: #081a36;
+  /* Blue System */
   --blue-900: #0f2752;
-  --blue-800: #1e3a8a;
-  --blue-700: #1d4ed8;
+  --blue-800: #194185;
+  --blue-700: #175cd3;
   --blue-600: #2563eb;
   --blue-500: #3b82f6;
   --blue-400: #60a5fa;
-  --blue-300: #93c5fd;
-  --blue-200: #bfdbfe;
-  --blue-100: #dbeafe;
-  --blue-50: #eff6ff;
+  --blue-300: #84caff;
+  --blue-200: #b2ddff;
+  --blue-100: #d1e9ff;
+  --blue-50: #eff8ff;
 
-  /* White & Grayscale on Light */
+  /* Neutrals */
   --white: #ffffff;
-  --border-subtle: #e2e8f0;
-  --border-medium: #cbd5e1;
-  --border-blue: #bfdbfe;
+  --border-subtle: #eaecf0;
+  --border-medium: #d0d5dd;
+  --border-blue: #b2ddff;
 
-  /* Typography Colors */
-  --text-main: #0f172a;
-  --text-soft: #334155;
-  --text-muted: #64748b;
-  --text-blue: #1d4ed8;
+  /* Typography */
+  --text-primary: #101828;
+  --text-secondary: #344054;
+  --text-muted: #475467;
+  --text-light: #667085;
+  --text-blue: #175cd3;
 
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: 'Outfit', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  --radius-sm: 6px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
   --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-lg: 12px;
   --radius-full: 9999px;
 
-  --shadow-subtle: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
-  --shadow-card: 0 4px 6px -1px rgba(15, 23, 42, 0.05), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
 }
 
 * {
@@ -54,54 +56,78 @@
 
 body {
   background-color: var(--bg-main);
-  background-image: radial-gradient(ellipse 70% 35% at 50% -5%, #e0f2fe, transparent);
-  background-attachment: fixed;
-  color: var(--text-main);
+  background-image: none;
+  color: var(--text-primary);
   font-family: var(--font-sans);
   min-height: 100vh;
-  line-height: 1.6;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 
 /* Minimal Scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: var(--bg-main);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--blue-200);
+  background: #d0d5dd;
   border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--blue-400);
+  background: #98a2b3;
 }
 
 /* Headings */
 h1, h2, h3, h4 {
   font-family: var(--font-display);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   font-weight: 700;
-  color: var(--text-main);
+  color: var(--text-primary);
 }
 
 .blue-text {
   color: var(--blue-600);
 }
 
-/* Minimal White Cards */
+/* Pure White Cards */
 .glass-panel {
-  background: var(--bg-card);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .glass-panel:hover {
-  border-color: var(--border-medium);
+  border-color: #d0d5dd;
+  box-shadow: var(--shadow-md);
+}
+
+/* Inputs */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+select,
+textarea {
+  background: #ffffff !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-medium) !important;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  transition: all 0.15s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--blue-600) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
 }
 
 /* Minimal Buttons */
@@ -110,67 +136,73 @@ h1, h2, h3, h4 {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 9px 16px;
   border-radius: var(--radius-sm);
   font-family: var(--font-sans);
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
   border: none;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   text-decoration: none;
   white-space: nowrap;
 }
 
-/* White Solid Button */
-.btn-white {
-  background: var(--white);
-  color: var(--text-main);
-  border: 1px solid var(--border-subtle);
-}
-.btn-white:hover {
-  background: var(--bg-blue-tint);
-  border-color: var(--blue-300);
-}
-
-/* Blue Solid Button */
+/* Primary Button */
 .btn-primary {
   background: var(--blue-600);
-  color: var(--white);
+  color: #ffffff;
+  box-shadow: var(--shadow-xs);
 }
 .btn-primary:hover {
   background: var(--blue-700);
 }
+.btn-primary:active {
+  background: var(--blue-800);
+}
 
-/* Outline Button */
+/* Clean Outline Button */
 .btn-outline {
-  background: var(--white);
-  color: var(--text-soft);
-  border: 1px solid var(--border-subtle);
+  background: #ffffff;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-medium);
+  box-shadow: var(--shadow-xs);
 }
 .btn-outline:hover {
-  background: var(--bg-blue-tint);
-  border-color: var(--blue-300);
-  color: var(--blue-700);
+  background: #f9fafb;
+  border-color: #98a2b3;
+  color: var(--text-primary);
 }
 
-/* Soft Blue Tint Button */
+/* White Solid Button */
+.btn-white {
+  background: #ffffff;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-xs);
+}
+.btn-white:hover {
+  background: #f9fafb;
+}
+
+/* Soft Blue Button */
 .btn-blue-soft {
   background: var(--bg-blue-tint);
   color: var(--blue-700);
   border: 1px solid var(--border-blue);
 }
 .btn-blue-soft:hover {
-  background: #dbeafe;
+  background: #d1e9ff;
+  color: var(--blue-800);
 }
 
 .btn-sm {
-  padding: 5px 12px;
-  font-size: 0.8rem;
+  padding: 6px 12px;
+  font-size: 0.82rem;
   border-radius: var(--radius-sm);
 }
 
-/* Minimal Badges */
+/* Badges */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -179,13 +211,7 @@ h1, h2, h3, h4 {
   border-radius: var(--radius-full);
   font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.badge-white {
-  background: var(--white);
-  color: var(--text-soft);
-  border: 1px solid var(--border-subtle);
+  letter-spacing: 0.01em;
 }
 
 .badge-blue {
@@ -194,13 +220,19 @@ h1, h2, h3, h4 {
   border: 1px solid var(--border-blue);
 }
 
-.badge-soft {
-  background: #f1f5f9;
-  color: var(--text-muted);
+.badge-white {
+  background: #ffffff;
+  color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
 }
 
-/* Minimal Pulse Dot */
+.badge-soft {
+  background: #f2f4f7;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Pulse Dot */
 .pulse-dot {
   width: 6px;
   height: 6px;
@@ -210,7 +242,7 @@ h1, h2, h3, h4 {
 
 /* Container */
 .container {
-  max-width: 1080px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 0 20px;
 }

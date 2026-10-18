@@ -3,19 +3,25 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { FileRecord, UserSession } from '@/types';
-import { getStoredFiles, deleteFileImmediately, getCurrentUser, resetDemoDatabase } from '@/services/storage';
+import { fetchFiles, deleteFileApi, resetDatabaseApi, getCurrentUser } from '@/services/storage';
 import CountdownClock from '@/components/CountdownClock';
 
 export default function DashboardPage() {
   const [files, setFiles] = useState<FileRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'expired'>('all');
   const [user, setUser] = useState<UserSession | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const loadData = () => {
-    setFiles(getStoredFiles());
-    setUser(getCurrentUser());
+  const loadData = async () => {
+    try {
+      const data = await fetchFiles();
+      setFiles(data);
+      setUser(getCurrentUser());
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -24,10 +30,15 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleVanishNow = (id: string) => {
-    deleteFileImmediately(id);
+  const handleVanishNow = async (id: string) => {
+    await deleteFileApi(id);
     setDeleteConfirmId(null);
-    loadData();
+    await loadData();
+  };
+
+  const handleReset = async () => {
+    await resetDatabaseApi();
+    await loadData();
   };
 
   const handleCopy = (id: string) => {
@@ -83,20 +94,20 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          <h1 style={{ fontSize: '2.3rem', lineHeight: 1.2, color: 'var(--text-main)' }}>
+          <h1 style={{ fontSize: '2.3rem', lineHeight: 1.2, color: 'var(--text-primary)' }}>
             Control Center and <span className="blue-text">Analytics</span>
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem' }}>
-            Logged in as <strong>{user?.name || 'Meet Dhorajiya'}</strong> ({user?.email || 'meet@iiitv.ac.in'})
+            Logged in as <strong>{user?.name || 'Vanish User'}</strong> ({user?.email || 'user@vanish.dev'})
           </p>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
-            onClick={() => { resetDemoDatabase(); loadData(); }}
+            onClick={handleReset}
             className="btn btn-outline btn-sm"
           >
-            <span>Reset Demo Data</span>
+            <span>Restore Sample Files</span>
           </button>
           <Link href="/upload" className="btn btn-primary btn-sm">
             <span>+ Upload New File</span>
@@ -112,50 +123,50 @@ export default function DashboardPage() {
         marginBottom: '28px'
       }}>
         
-        <div className="glass-panel" style={{ padding: '18px', background: 'var(--white)' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+        <div className="glass-panel" style={{ padding: '18px', background: '#ffffff' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 600 }}>
             Active Ephemeral Files
           </div>
           <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--blue-600)', marginTop: '2px' }}>
             {activeFiles.length}
           </div>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-soft)' }}>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
             Currently ticking down
           </div>
         </div>
 
-        <div className="glass-panel" style={{ padding: '18px', background: 'var(--white)' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+        <div className="glass-panel" style={{ padding: '18px', background: '#ffffff' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 600 }}>
             Vanished / Expunged
           </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--text-soft)', marginTop: '2px' }}>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--text-secondary)', marginTop: '2px' }}>
             {expiredFiles.length}
           </div>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-            Deleted from Cloudinary
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-light)' }}>
+            Deleted from storage
           </div>
         </div>
 
-        <div className="glass-panel" style={{ padding: '18px', background: 'var(--white)' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+        <div className="glass-panel" style={{ padding: '18px', background: '#ffffff' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 600 }}>
             Total Downloads Served
           </div>
           <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--blue-700)', marginTop: '2px' }}>
             {totalDownloads}
           </div>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-soft)' }}>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
             Across all active files
           </div>
         </div>
 
-        <div className="glass-panel" style={{ padding: '18px', background: 'var(--white)' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+        <div className="glass-panel" style={{ padding: '18px', background: '#ffffff' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 600 }}>
             Storage Stored
           </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--text-main)', marginTop: '2px' }}>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>
             {formatFileSize(totalSizeBytes)}
           </div>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-soft)' }}>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
             Temporary footprint
           </div>
         </div>
@@ -163,7 +174,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Files Table / List */}
-      <div className="glass-panel" style={{ padding: '22px', background: 'var(--white)' }}>
+      <div className="glass-panel" style={{ padding: '22px', background: '#ffffff' }}>
         
         {/* Filter bar */}
         <div style={{
@@ -197,13 +208,17 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
             TTL auto-cleanup running in background
           </div>
         </div>
 
-        {filteredFiles.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--text-muted)' }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--text-light)' }}>
+            Loading files from server...
+          </div>
+        ) : filteredFiles.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--text-light)' }}>
             No files found in this view.
           </div>
         ) : (
@@ -221,9 +236,9 @@ export default function DashboardPage() {
                     gap: '12px',
                     padding: '12px 16px',
                     borderRadius: 'var(--radius-sm)',
-                    background: '#f8fafc',
+                    background: '#fcfcfd',
                     border: '1px solid var(--border-subtle)',
-                    transition: 'border-color 0.2s ease'
+                    transition: 'border-color 0.15s ease'
                   }}
                 >
                   {/* File Info */}
@@ -232,13 +247,13 @@ export default function DashboardPage() {
                       width: '32px',
                       height: '32px',
                       borderRadius: 'var(--radius-sm)',
-                      background: 'var(--white)',
-                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-blue-tint)',
+                      border: '1px solid var(--border-blue)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       color: 'var(--blue-600)',
-                      boxShadow: 'var(--shadow-subtle)'
+                      boxShadow: 'var(--shadow-xs)'
                     }}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -247,7 +262,7 @@ export default function DashboardPage() {
                     </div>
 
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)', wordBreak: 'break-word' }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', wordBreak: 'break-word' }}>
                         {file.name}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>

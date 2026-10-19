@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// In-memory cache so readDatabase() does not hit disk on every request
+let _dbCache: DatabaseSchema | null = null;
+
 export interface StoredFile {
   id: string;
   name: string;
@@ -167,24 +170,30 @@ function initSeeds(): DatabaseSchema {
   };
 
   fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2));
+  _dbCache = initialData; // populate in-memory cache
   return initialData;
 }
 
 export function readDatabase(): DatabaseSchema {
+  if (_dbCache) return _dbCache;
   ensureDirectories();
   if (!fs.existsSync(DB_FILE)) {
-    return initSeeds();
+    _dbCache = initSeeds();
+    return _dbCache;
   }
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
-    return JSON.parse(raw);
+    _dbCache = JSON.parse(raw);
+    return _dbCache!;
   } catch {
-    return initSeeds();
+    _dbCache = initSeeds();
+    return _dbCache;
   }
 }
 
 export function writeDatabase(data: DatabaseSchema): void {
   ensureDirectories();
+  _dbCache = data; // update in-memory cache immediately
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 

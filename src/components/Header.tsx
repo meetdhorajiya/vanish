@@ -38,10 +38,9 @@ export default function Header() {
     };
 
     updateStats();
-    const interval = setInterval(updateStats, 4000);
+    // No interval — refresh only on route change. Dashboard handles realtime data.
     return () => {
       isMounted = false;
-      clearInterval(interval);
     };
   }, [pathname]);
 

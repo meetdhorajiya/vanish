@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readDatabase, writeDatabase, getUploadsDirectory, purgeExpiredFiles } from '@/server/db';
+import { readDatabase, writeDatabase, getUploadsDirectory } from '@/server/db';
 
 
 export async function GET(
@@ -10,8 +10,6 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    purgeExpiredFiles();
-
     const db = readDatabase();
     const file = db.files.find((f) => f.id === id);
 

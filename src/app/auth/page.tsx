@@ -71,11 +71,43 @@ export default function AuthPage() {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
 
     playSuccessSound();
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: activeTab === 'signin' ? 'login' : 'signup',
+          email: email.trim(),
+          password: password.trim() || 'password123',
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const userSession: UserSession = {
+          isLoggedIn: true,
+          name: data.user.name || email.split('@')[0],
+          email: data.user.email,
+          token: data.token,
+        };
+        setMockUser(userSession);
+        setCurrentUserState(userSession);
+        showToast({
+          type: 'success',
+          title: 'Session Authenticated',
+          message: `Welcome, ${userSession.name}!`
+        });
+        return;
+      }
+    } catch {
+      // fallback
+    }
+
     const namePart = email.split('@')[0];
     const userSession: UserSession = {
       isLoggedIn: true,
@@ -97,32 +129,32 @@ export default function AuthPage() {
     const newKey = {
       id: `key-${Date.now()}`,
       key: `vanish_live_${generateSecureId(24)}`,
-      label: 'Automated Upload Script',
-      created: 'Just now'
+      label: `API Key #${apiKeys.length + 1}`,
+      created: new Date().toISOString().split('T')[0]
     };
-    setApiKeys((prev) => [newKey, ...prev]);
+    setApiKeys([...apiKeys, newKey]);
     showToast({
       type: 'success',
-      title: 'API Secret Created',
-      message: 'New key generated with full storage write privileges.'
+      title: 'Secret Key Generated',
+      message: 'Keep this key safe. It will not be shown again.'
     });
   };
 
   const handleDeleteApiKey = (id: string) => {
     playClickSound();
-    setApiKeys((prev) => prev.filter((k) => k.id !== id));
+    setApiKeys(apiKeys.filter((k) => k.id !== id));
     showToast({
       type: 'info',
-      title: 'Key Revoked',
-      message: 'API token deactivated and blocked from authentication.'
+      title: 'API Key Revoked',
+      message: 'Secret key was permanently revoked from Vanish authentication gateway.'
     });
   };
 
   return (
-    <div style={{ maxWidth: '640px', margin: '36px auto 90px' }}>
+    <div style={{ maxWidth: '680px', margin: '40px auto 80px', padding: '0 16px' }}>
       
-      {/* Title */}
-      <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+      {/* Page Title */}
+      <div style={{ textAlign: 'center', marginBottom: '32px' }}>
         <div style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -131,61 +163,64 @@ export default function AuthPage() {
           borderRadius: 'var(--radius-full)',
           background: 'var(--bg-blue-tint)',
           border: '1px solid var(--border-blue)',
-          marginBottom: '10px'
+          marginBottom: '12px',
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          color: 'var(--blue-700)'
         }}>
           <span className="pulse-dot"></span>
-          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--blue-700)', letterSpacing: '0.02em' }}>
-            JWT AUTHENTICATION & IDENTITY PORTAL
-          </span>
+          <span>HMAC-SHA256 JWT Authentication</span>
         </div>
 
-        <h1 style={{ fontSize: '2.4rem', marginBottom: '6px', color: '#0f172a' }}>
-          Identity & <span className="blue-text">API Tokens</span>
+        <h1 style={{ fontSize: '2.2rem', marginBottom: '8px', color: '#0f172a' }}>
+          Identity & Access Control
         </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem' }}>
-          Ties uploads to your verified credentials, unlocks personal audit trails, and provides programmatic API access.
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.94rem' }}>
+          Inspect session tokens, manage developer API keys, and switch test credentials.
         </p>
       </div>
 
-      <div className="glass-panel" style={{ padding: '32px', background: '#ffffff', borderRadius: '18px' }}>
-        
-        {/* Quick Team Switcher Presets */}
-        <div style={{ marginBottom: '24px' }}>
-          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--blue-700)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
-            Instant 1-Click Login (IIIT Vadodara Project Authors):
+      {/* Team Fast Switcher (For Evaluation & Demo) */}
+      <div className="glass-panel" style={{ padding: '24px', marginBottom: '28px', background: '#ffffff', borderRadius: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.94rem', color: '#0f172a' }}>
+              One-Click Evaluator Switcher
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Select a project author to load authenticated session context.
+            </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px' }}>
-            {teamPresets.map((preset) => {
-              const isSelected = currentUser?.email === preset.email;
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => handleSelectPreset(preset)}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: '10px',
-                    background: isSelected ? 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' : '#f8fafc',
-                    border: `1px solid ${isSelected ? '#2563eb' : 'var(--border-subtle)'}`,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    transition: 'all 0.15s ease',
-                    boxShadow: isSelected ? '0 4px 12px rgba(37, 99, 235, 0.25)' : 'var(--shadow-subtle)'
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: isSelected ? '#ffffff' : '#0f172a' }}>
-                    {preset.name}
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}>
-                    ID: {preset.id}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          <span className="badge badge-blue">IIIT Vadodara</span>
         </div>
 
-        {/* Tab switcher */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          {teamPresets.map((preset) => (
+            <button
+              key={preset.id}
+              onClick={() => handleSelectPreset(preset)}
+              style={{
+                padding: '12px',
+                borderRadius: '10px',
+                border: currentUser?.email === preset.email ? '2px solid var(--blue-600)' : '1px solid var(--border-subtle)',
+                background: currentUser?.email === preset.email ? 'var(--bg-blue-tint)' : '#ffffff',
+                textAlign: 'left',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a' }}>{preset.name}</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--blue-700)', fontFamily: 'var(--font-mono)' }}>ID: {preset.id}</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{preset.role}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Form & Credentials Card */}
+      <div className="glass-panel" style={{ padding: '32px', background: '#ffffff', borderRadius: '18px' }}>
+
+        {/* Tab switch */}
         <div style={{
           display: 'flex',
           borderBottom: '1px solid var(--border-subtle)',

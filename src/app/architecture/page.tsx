@@ -21,13 +21,12 @@ export default function ArchitecturePage() {
   };
 
   const apiSnippets = {
-    curl: `curl -X POST https://vanish.app/api/v1/upload \\
+    curl: `curl -X POST https://vanish.app/api/upload \\
   -H "Authorization: Bearer <JWT_TOKEN>" \\
   -H "Content-Type: multipart/form-data" \\
   -F "file=@presentation.pdf" \\
-  -F "ttl=24h" \\
-  -F "max_downloads=5" \\
-  -F "sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"`,
+  -F "duration=24h" \\
+  -F "maxDownloads=5"`,
 
     ts: `import { VanishClient } from '@vanish/sdk';
 
@@ -38,7 +37,7 @@ const client = new VanishClient({
 // Upload with 6-hour TTL and AES-256 Client Encryption
 const upload = await client.files.create({
   file: documentBuffer,
-  ttl: '6h',
+  duration: '6h',
   maxDownloads: 3,
   encryptClientSide: true
 });
@@ -48,13 +47,13 @@ console.log('Expires At:', upload.expiresAt);`,
 
     python: `import requests
 
-url = "https://vanish.app/api/v1/upload"
+url = "https://vanish.app/api/upload"
 headers = {"Authorization": "Bearer <JWT_TOKEN>"}
 
 payload = {
-    "ttl": "24h",
-    "max_downloads": "10",
-    "password_hash": "$2b$12$K1rZ...BcryptHash"
+    "duration": "24h",
+    "maxDownloads": "10",
+    "password": "secretPassword123"
 }
 files = [("file", ("confidential.xlsx", open("confidential.xlsx", "rb"), "application/vnd.ms-excel"))]
 
@@ -72,35 +71,27 @@ print(response.json())`
       desc: 'Files can be encrypted locally via Web Crypto API (SubtleCrypto) before upload. The symmetric key is stored in URL hash fragments (#key=...) which are never transmitted in HTTP headers.'
     },
     {
-      title: 'Bcrypt Password Salt & Hash',
-      desc: 'File access secrets and user accounts are hashed using Bcrypt with a computational work factor of 12. Plaintext passwords never enter persistence.'
+      title: 'HMAC-SHA256 Token Attestation',
+      desc: 'Download URLs and authenticated API sessions are protected by cryptographically signed JWT tokens with 7-day expiration.'
     },
     {
-      title: 'Magic-Byte MIME Allow-List',
-      desc: 'Incoming streams are analyzed by file magic byte headers (e.g. %PDF-, PNG magic), blocking disguised executables (.exe, .sh, .bat) from masquerading as documents.'
+      title: 'Active Daemon Physical Scrubber',
+      desc: 'Background cleanup daemon sweeps physical disk storage and database records every 5000ms, unlinking expired binaries immediately.'
     },
     {
-      title: 'High-Entropy Non-Guessable IDs',
-      desc: 'Identifiers are cryptographically randomized over a 62-character alphabet with 7-8 characters (62^7 = 3.52 trillion combinations), rendering URL brute-forcing mathematically unfeasible.'
+      title: 'PBKDF2 Password Hashing',
+      desc: 'Protected files verify passwords through PBKDF2 with 10,000 SHA-512 iterations and unique cryptographic salts.'
     },
     {
-      title: 'Atomic Download Quota Counters',
-      desc: 'MongoDB atomic $inc and condition filters guarantee that files set to self-destruct after N downloads cannot be concurrently downloaded past the quota.'
-    },
-    {
-      title: 'Automated Janitor TTL Shredding',
-      desc: 'A background daemon worker polls MongoDB TTL expiration triggers and issues direct deletion calls to Cloudinary, ensuring zero physical bytes remain.'
-    },
-    {
-      title: 'Anti-Tamper SHA-256 Checksums',
-      desc: 'Every file payload is fingerprinted with SHA-256 before upload. The recipient client recalculates the checksum on download to guarantee zero bit-level tampering.'
+      title: 'Atomic Quota Decrementing',
+      desc: 'Download counters decrement atomically on disk to prevent race conditions or replay attacks from exceeding recipient allowances.'
     }
   ];
 
   return (
-    <div style={{ padding: '36px 0 90px', maxWidth: '880px', margin: '0 auto' }}>
+    <div style={{ maxWidth: '980px', margin: '40px auto 90px', padding: '0 20px' }}>
       
-      {/* Title */}
+      {/* Page Title */}
       <div style={{ textAlign: 'center', marginBottom: '36px' }}>
         <div style={{
           display: 'inline-flex',
@@ -110,23 +101,24 @@ print(response.json())`
           borderRadius: 'var(--radius-full)',
           background: 'var(--bg-blue-tint)',
           border: '1px solid var(--border-blue)',
-          marginBottom: '12px'
+          marginBottom: '12px',
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          color: 'var(--blue-700)'
         }}>
           <span className="pulse-dot"></span>
-          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--blue-700)', letterSpacing: '0.02em' }}>
-            ACADEMIC REPORT SPECIFICATION • DESIGN PROJECT 2026-27
-          </span>
+          <span>IIIT Vadodara CSE Academic Specification</span>
         </div>
 
-        <h1 style={{ fontSize: '2.6rem', marginBottom: '10px', color: '#0f172a' }}>
-          Inside <span className="blue-text">VANISH</span>
+        <h1 style={{ fontSize: '2.5rem', marginBottom: '10px', color: '#0f172a' }}>
+          System Architecture & Cryptographic Specs
         </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.98rem', maxWidth: '680px', margin: '0 auto', lineHeight: 1.6 }}>
-          Comprehensive engineering architecture for ephemeral cloud file sharing. Designed and implemented for the Department of Computer Science & Engineering, IIIT Vadodara.
+        <p style={{ color: 'var(--text-muted)', fontSize: '1rem', maxWidth: '640px', margin: '0 auto' }}>
+          In-depth technical breakdown of the Vanish ephemeral zero-digital-residue cloud protocol.
         </p>
       </div>
 
-      {/* Academic Credits Card */}
+      {/* Academic Project Credits */}
       <div className="glass-panel" style={{
         padding: '24px 28px',
         marginBottom: '32px',
@@ -165,7 +157,7 @@ print(response.json())`
           Mainstream cloud platforms (Google Drive, AWS S3, Dropbox) are designed around <em>infinite retention</em>: links remain valid perpetually unless humans remember to manually revoke access. In enterprise and academic environments, this creates massive security exposure: shared credentials, contracts, exam drafts, and student records linger in unmonitored storage buckets indefinitely.
         </p>
         <p style={{ color: 'var(--text-soft)', fontSize: '0.92rem', lineHeight: 1.7 }}>
-          <strong>Vanish</strong> flips this default. Ephemerality is an active, first-class citizen enforced by automated cryptographic and database engines. Physical scrubbing of binary payloads from Cloudinary and metadata from MongoDB Atlas happens reliably at T=0, eliminating human error and digital residue.
+          <strong>Vanish</strong> flips this default. Ephemerality is an active, first-class citizen enforced by automated cryptographic and database engines. Physical scrubbing of binary payloads from disk storage and metadata from database records happens reliably at T=0, eliminating human error and digital residue.
         </p>
       </div>
 

@@ -2,39 +2,59 @@
 
 import React, { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { getStoredFiles, getCurrentUser, setMockUser, subscribeToStore } from '@/services/storage';
+import { usePathname, useRouter } from 'next/navigation';
+import { getStoredFiles, getCurrentUser, setMockUser, subscribeToStore, logoutUser, fetchFiles } from '@/services/storage';
 import { toggleMute, getMuteState, playClickSound } from '@/services/sound';
 import { UserSession } from '@/types';
 
 export default function Header() {
   const pathname = usePathname();
+  const router = useRouter();
   const [activeCount, setActiveCount] = useState<number>(0);
   const [user, setUser] = useState<UserSession | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [, startTransition] = useTransition();
 
-  useEffect(() => {
-    // Initial fetch inside effect wrapped in transition
-    startTransition(() => {
-      const files = getStoredFiles();
-      setActiveCount(files.filter((f) => f.status === 'active').length);
-      setUser(getCurrentUser());
-      setIsAudioMuted(getMuteState());
-    });
-
-    // Subscribe to store updates (BroadcastChannel or local events)
-    const unsubscribe = subscribeToStore(() => {
+  const syncData = async () => {
+    try {
+      const currentUser = getCurrentUser();
+      const stored = getStoredFiles();
       startTransition(() => {
-        const files = getStoredFiles();
-        setActiveCount(files.filter((f) => f.status === 'active').length);
-        setUser(getCurrentUser());
+        setUser(currentUser.isLoggedIn ? currentUser : null);
+        setActiveCount(stored.filter((f) => f.status === 'active').length);
+        setIsAudioMuted(getMuteState());
       });
+
+      // Background fetch to sync from backend if user is logged in
+      if (currentUser.isLoggedIn) {
+        const remoteFiles = await fetchFiles();
+        if (remoteFiles && remoteFiles.length > 0) {
+          startTransition(() => {
+            setActiveCount(remoteFiles.filter((f) => f.status === 'active').length);
+          });
+        }
+      }
+    } catch {
+      // Safe fallback
+    }
+  };
+
+  useEffect(() => {
+    syncData();
+
+    // Subscribe to store updates
+    const unsubscribe = subscribeToStore(() => {
+      syncData();
     });
 
-    return () => unsubscribe();
-  }, []);
+    const interval = setInterval(syncData, 5000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, [pathname]);
 
   const teamPresets = [
     { name: 'Meet Dhorajiya', email: 'meet@iiitv.ac.in', id: '202451053' },
@@ -64,13 +84,22 @@ export default function Header() {
     }
   };
 
+  const handleLogout = async () => {
+    playClickSound();
+    await logoutUser();
+    setUser(null);
+    setUserMenuOpen(false);
+    router.push('/');
+    router.refresh();
+  };
+
   return (
-    <header className="vanish-header">
-      <div className="container header-inner">
+    <header className="header-wrapper">
+      <div className="container header-inner" style={{ padding: '10px 20px' }}>
         
         {/* Brand Logo */}
         <Link
-          href="/"
+          href={user ? "/dashboard" : "/"}
           className="brand-link"
           onClick={() => playClickSound()}
           aria-label="Vanish — Zero-Trace Ephemeral Cloud File Sharing"
@@ -133,14 +162,6 @@ export default function Header() {
         {/* Navigation Links */}
         <nav className="header-nav">
           <Link
-            href="/"
-            onClick={() => playClickSound()}
-            className={`nav-link ${pathname === '/' ? 'active' : ''}`}
-          >
-            <span>Platform Hub</span>
-          </Link>
-
-          <Link
             href="/upload"
             onClick={() => playClickSound()}
             className={`nav-link ${pathname === '/upload' ? 'active' : ''}`}
@@ -153,7 +174,7 @@ export default function Header() {
             onClick={() => playClickSound()}
             className={`nav-link ${pathname === '/dashboard' ? 'active' : ''}`}
           >
-            <span>Command Center</span>
+            <span>Dashboard</span>
             {activeCount > 0 && (
               <span className="active-count-bubble">
                 {activeCount}
@@ -170,7 +191,7 @@ export default function Header() {
           </Link>
         </nav>
 
-        {/* System Health + User Profile Action Bar */}
+        {/* Action Bar */}
         <div className="header-actions">
           
           {/* Live Cluster Health Badge */}
@@ -201,63 +222,86 @@ export default function Header() {
           </button>
 
           {/* User Account Dropdown */}
-          <div className="user-menu-wrapper">
-            <button
-              onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="user-pill-btn"
-            >
-              <div className="user-avatar-circle">
-                {user?.name ? user.name.charAt(0) : 'M'}
-              </div>
-              <span className="user-name-label">
-                {user?.name || 'Meet Dhorajiya'}
-              </span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </button>
-
-            {/* Dropdown Menu */}
-            {userMenuOpen && (
-              <div className="user-dropdown-panel glass-panel">
-                <div className="dropdown-user-info">
-                  <div className="dropdown-user-name">{user?.name}</div>
-                  <div className="dropdown-user-email">{user?.email}</div>
-                  {user?.studentId && (
-                    <div className="dropdown-student-id">ID: {user.studentId} (IIITV)</div>
-                  )}
+          {user ? (
+            <div className="user-menu-wrapper">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="user-pill-btn"
+              >
+                <div className="user-avatar-circle">
+                  {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
                 </div>
+                <span className="user-name-label">
+                  {user.name || user.email.split('@')[0]}
+                </span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
 
-                <div className="dropdown-divider" />
+              {/* Dropdown Menu */}
+              {userMenuOpen && (
+                <div className="user-dropdown-panel glass-panel">
+                  <div className="dropdown-user-info">
+                    <div className="dropdown-user-name">{user.name}</div>
+                    <div className="dropdown-user-email">{user.email}</div>
+                    {user.studentId && (
+                      <div className="dropdown-student-id">ID: {user.studentId} (IIITV)</div>
+                    )}
+                  </div>
 
-                <div className="dropdown-label">Switch Active Member:</div>
-                {teamPresets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    onClick={() => handleSwitchUser(preset)}
-                    className={`dropdown-team-btn ${user?.email === preset.email ? 'selected' : ''}`}
+                  <div className="dropdown-divider" />
+
+                  <div className="dropdown-label">Switch Active Member:</div>
+                  {teamPresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      onClick={() => handleSwitchUser(preset)}
+                      className={`dropdown-team-btn ${user.email === preset.email ? 'selected' : ''}`}
+                    >
+                      <span>{preset.name}</span>
+                      <span className="preset-id">#{preset.id}</span>
+                    </button>
+                  ))}
+
+                  <div className="dropdown-divider" />
+
+                  <Link
+                    href="/auth"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="dropdown-auth-link"
                   >
-                    <span>{preset.name}</span>
-                    <span className="preset-id">#{preset.id}</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                    </svg>
+                    <span>JWT Auth Inspector</span>
+                  </Link>
+
+                  <button
+                    onClick={handleLogout}
+                    className="dropdown-team-btn"
+                    style={{ color: 'var(--rose-600)', marginTop: '4px' }}
+                  >
+                    <span>Log Out</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                      <polyline points="16 17 21 12 16 7"></polyline>
+                      <line x1="21" y1="12" x2="9" y2="12"></line>
+                    </svg>
                   </button>
-                ))}
-
-                <div className="dropdown-divider" />
-
-                <Link
-                  href="/auth"
-                  onClick={() => setUserMenuOpen(false)}
-                  className="dropdown-auth-link"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                  </svg>
-                  <span>JWT Auth Inspector</span>
-                </Link>
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Link
+              href="/"
+              onClick={() => playClickSound()}
+              className="btn btn-outline btn-sm"
+            >
+              <span>Sign In</span>
+            </Link>
+          )}
 
           {/* Quick Upload Action */}
           <Link

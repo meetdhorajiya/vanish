@@ -6,7 +6,7 @@
 **Files that share themselves and genuinely clean up after themselves.**  
 *Inverting the infinite-retention paradigm of conventional cloud storage.*
 
-[![Next.js 16](https://img.shields.io/badge/Next.js-16.4.0_(Turbopack)-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16.4.0-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![React 19](https://img.shields.io/badge/React-19.3.0-61DAFB?style=for-the-badge&logo=react)](https://react.dev/)
 [![TypeScript 5](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Web Crypto API](https://img.shields.io/badge/Security-AES--256--GCM-2563eb?style=for-the-badge&logo=shield)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
@@ -39,7 +39,7 @@ Mainstream cloud providers (Google Drive, AWS S3, Dropbox, OneDrive) are enginee
 ### The Vanish Paradigm
 **VANISH** treats ephemerality as a fundamental, non-negotiable primitive:
 1. **Automated Cryptographic Time-to-Live (TTL)**: Expiration countdowns are enforced at both the client tier and database persistence layer.
-2. **True Physical Cloud Scrubbing**: When $T=0$ or a download quota is satisfied, binary payloads are physically shredded from cloud storage (Cloudinary / S3 private vaults) and metadata is expunged from database indexes.
+2. **True Physical Cloud Scrubbing**: When $T=0$ or a download quota is satisfied, binary payloads are physically unlinked and shredded from disk storage (`./data/uploads`) and metadata is expunged from database records.
 3. **Zero Digital Residue**: Expired links return immediate cryptographic `410 Gone` tombstones. Recovery is mathematically and physically impossible.
 
 ---
@@ -48,191 +48,115 @@ Mainstream cloud providers (Google Drive, AWS S3, Dropbox, OneDrive) are enginee
 
 ```mermaid
 graph TD
-    subgraph Client ["Presentation Tier (Browser)"]
-        User["Client Browser"]
-        CryptoEngine["Web Crypto API (SubtleCrypto)<br/>AES-256-GCM + SHA-256"]
-        User --> CryptoEngine
+    subgraph Client Tier [Browser / Client Hardware]
+        A[User selects file] --> B[Web Crypto API: AES-256-GCM]
+        B --> C[Compute SHA-256 Checksum]
+        C --> D[Multipart Stream with TTL & Quota]
     end
 
-    subgraph Edge ["Edge & CDN Tier"]
-        Cloudflare["Cloudflare Edge Gateway<br/>TLS 1.3 • HSTS • Token-Bucket Rate Limiting"]
+    subgraph Transport & Edge Tier [Next.js Edge Proxy]
+        D --> E[src/proxy.ts: Route & JWT Attestation]
+        E --> F[API Gateway /api/upload]
     end
 
-    subgraph API ["Application Tier"]
-        RestAPI["Vanish Stateless REST API<br/>Node.js / Express • Magic-Byte MIME Verifier • JWT Auth"]
+    subgraph Persistence & Application Tier [Node.js Engine]
+        F --> G[Write Binary: ./data/uploads/]
+        F --> H[Update Ledger: ./data/db.json]
     end
 
-    subgraph Storage ["Persistence & Vault Tier"]
-        ObjectStore["Private Vault (Cloudinary / AWS S3 SSE)<br/>Encrypted Binary Blobs • Short-Lived Signed URLs"]
-        Mongo["MongoDB Atlas<br/>Native TTL Index on { expiresAt: 1 }<br/>Atomic $inc Download Quotas"]
+    subgraph Janitor Daemon [Background TTL Sweeper]
+        I[src/server/cleanup.ts: 5000ms Interval] -->|Poll Expiration| H
+        I -->|Physical fs.unlinkSync| G
+        I -->|Status: Expired| H
     end
 
-    subgraph Janitor ["Automated Sweeper Engine"]
-        Daemon["BullMQ / Janitor Sweeper Daemon<br/>High-Frequency Expiration Poller"]
+    subgraph Recipient Portal [/f/:id]
+        J[Recipient accesses link] --> K{Password Protected?}
+        K -->|Yes| L[POST /api/file/:id/unlock -> HMAC-SHA256 Token]
+        K -->|No| M[GET /api/file/:id/download]
+        L --> M
+        M --> N[Atomic Quota Decrement]
+        N -->|Quota Exhausted or TTL = 0| I
     end
-
-    CryptoEngine -->|"AES-256 Ciphertext + SHA-256 Hash"| Cloudflare
-    Cloudflare -->|"Sanitized Stream"| RestAPI
-    RestAPI -->|"Encrypted Binary Stream"| ObjectStore
-    RestAPI -->|"TTL Document & Access Ledger"| Mongo
-
-    Mongo -.->|"TTL Expiration Trigger (T=0)"| Daemon
-    Daemon -->|"Direct API Physical Purge Call"| ObjectStore
-    Daemon -->|"Mark Exhausted / Expunged"| Mongo
 ```
 
 ---
 
-## 🔒 3. Defensive Cybersecurity & Cryptographic Matrix
+## 🔐 3. Applied Cryptographic Implementation
 
-| Security Layer | Defense Mechanism | Engineering Implementation & Guarantee |
+| Layer | Protocol / Algorithm | Specification & Implementation |
 | :--- | :--- | :--- |
-| **Client-Side Encryption** | **AES-256-GCM** | Raw files are encrypted directly in the client browser's memory via `crypto.subtle` prior to network dispatch. Server administrators never observe plaintext. |
-| **Zero-Knowledge Key Isolation** | **URL Hash Fragment** | Decryption keys are stored strictly in the URL fragment (`#key=...`), which modern browser RFCs never transmit across HTTP headers to the server. |
-| **Passphrase Derivation** | **PBKDF2 (SHA-256)** | Password-locked payloads utilize PBKDF2 with 100,000 iterations and a cryptographically randomized 16-byte salt to prevent rainbow table attacks. |
-| **Anti-Tampering Integrity** | **SHA-256 Fingerprinting** | Senders compute a bit-level SHA-256 checksum at upload. Recipients recalculate the hash upon stream completion to verify zero in-transit bit tampering. |
-| **Identifier Entropy** | **Base62 URL Tokens** | Random tokens drawn from a 62-character alphabet ($62^7 = 3.52 \times 10^{12}$ combinations), rendering automated enumeration and brute-forcing unfeasible. |
-| **MIME Validation** | **Magic-Byte Inspection** | Binary headers (`%PDF-`, PNG magic headers, etc.) are verified server-side, preventing disguised executable scripts (`.exe`, `.sh`) from posing as harmless media. |
-| **Atomic Quotas** | **Concurrency Locks** | MongoDB atomic `$inc` operators ensure files set to "Burn after 1 download" cannot be concurrently downloaded by multiple race conditions. |
-| **Zero Server Persistence** | **Ephemeral Streaming** | Payloads bypass server disks entirely, streaming directly through memory into private cloud vaults. |
+| **Client Encryption** | `AES-256-GCM` | Client Web Crypto API (`SubtleCrypto`). 256-bit symmetric key derived via PBKDF2 (100,000 rounds SHA-256). |
+| **Payload Integrity** | `SHA-256` | Byte-level message digest calculated client-side before upload to detect in-transit corruption or tampering. |
+| **Password Auth** | `PBKDF2-SHA512` | Salted key derivation with 10,000 iterations and 64-byte output for access control passphrases. |
+| **Token Attestation** | `HMAC-SHA256 JWT` | Stateless short-lived JWT download tokens and 7-day session cookies signed with server secret (`node:crypto`). |
+| **Transport** | `TLS 1.3 / HSTS` | Strict transport security protecting against packet inspection and MITM vector interception. |
 
 ---
 
-## 🧪 4. Interactive Test Scenarios
-
-The platform includes a zero-friction interactive simulation suite demonstrating all lifecycle states:
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                       VANISH TEST SCENARIO MATRIX                       │
-├─────────────────┬──────────────┬────────────────────────┬───────────────┤
-│ Scenario ID     │ State        │ TTL / Security Rule    │ Behavior      │
-├─────────────────┼──────────────┼────────────────────────┼───────────────┤
-│ demo-active     │ Active       │ 6h Remaining (Nominal) │ One-click DL  │
-│ demo-locked     │ Protected    │ Passphrase: vanish123  │ AES Decrypt   │
-│ demo-vanished   │ Expunged     │ Elapsed (0s Remaining) │ 410 Tombstone │
-│ demo-exhausted  │ Burned       │ Quota Depleted (3/3)   │ Auto-Shred    │
-│ demo-fast       │ Rapid Burn   │ 30-Second Live Ticker  │ Real-time TTL │
-└─────────────────┴──────────────┴────────────────────────┴───────────────┘
-```
-
-1. **Active & Download Ready (`/f/demo-active`)**: Full file preview, integrity verified against sender's SHA-256 fingerprint, dynamic circular countdown clock, instant binary stream.
-2. **Password Protected Challenge (`/f/demo-locked`)**: Zero-knowledge challenge. Unlocks payload metadata and streams decryption cipher only upon verification of the shared secret.
-3. **Expired & Expunged (`/f/demo-vanished`)**: Real-time simulation of an expunged file: binary purged, physical bytes deleted from storage, tombstone ledger retained for audit integrity.
-4. **Download Quota Exhaustion (`/f/demo-exhausted`)**: Burn-after-reading demonstration where quota hits maximum download ceiling and self-destructs instantly.
-5. **30s Rapid TTL Demo (`/f/demo-fast`)**: Ultra-fast live countdown ticker for presentations, showing automated transition from active to destroyed within seconds.
-
----
-
-## 💻 5. Programmatic Integration (Developer API)
-
-Vanish exposes a RESTful API for automated CLI scripts, CI/CD pipelines, and programmatic uploads:
-
-### cURL
-```bash
-curl -X POST https://vanish.app/api/v1/upload \
-  -H "Authorization: Bearer <JWT_SECRET_TOKEN>" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@confidential_report.pdf" \
-  -F "ttl=6h" \
-  -F "max_downloads=3" \
-  -F "password=vanish123" \
-  -F "sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-```
-
-### TypeScript / Node.js SDK
-```typescript
-import { VanishClient } from '@vanish/sdk';
-
-const client = new VanishClient({
-  apiKey: process.env.VANISH_API_KEY
-});
-
-// Upload with 6-hour TTL and Client-Side AES-256-GCM ciphering
-const record = await client.files.create({
-  file: documentBuffer,
-  ttl: '6h',
-  maxDownloads: 1,
-  encryptClientSide: true
-});
-
-console.log('Share URL:', record.shareUrl); // https://vanish.app/f/x7Yq2P
-console.log('Self-Destruct Timestamp:', record.expiresAt);
-```
-
-### Python
-```python
-import requests
-
-url = "https://vanish.app/api/v1/upload"
-headers = {"Authorization": "Bearer <JWT_SECRET_TOKEN>"}
-data = {
-    "ttl": "24h",
-    "max_downloads": "5"
-}
-files = [("file", ("audit.xlsx", open("audit.xlsx", "rb"), "application/vnd.ms-excel"))]
-
-response = requests.post(url, headers=headers, data=data, files=files)
-print(response.json())
-```
-
----
-
-## 📁 6. Codebase Architecture
+## 📁 4. Project Structure
 
 ```
 vanish/
 ├── src/
-│   ├── app/                                # Next.js 16 App Router Pages
-│   │   ├── architecture/page.tsx           # Full Technical Spec & Architecture Diagram
-│   │   ├── auth/page.tsx                   # JWT Identity & API Secret Token Manager
+│   ├── app/                                # Next.js App Router
+│   │   ├── page.tsx                        # Auth Portal & Landing
+│   │   ├── layout.tsx                      # Root layout with Header & Providers
 │   │   ├── dashboard/page.tsx              # Command Center, Audit Ledger & Live Timers
-│   │   ├── f/[id]/page.tsx                 # Recipient Download, Decrypt & Burn Engine
 │   │   ├── upload/page.tsx                 # Upload Studio (AES-256, SHA-256, QR Code)
-│   │   ├── layout.tsx                      # Root Layout with ToastProvider & Header
-│   │   └── page.tsx                        # Platform Hub / Zero-Page Catalog
-│   │
+│   │   ├── f/[id]/page.tsx                 # Recipient Download, Decrypt & Burn Engine
+│   │   ├── auth/page.tsx                   # JWT Identity & API Secret Token Inspector
+│   │   ├── architecture/page.tsx           # Full Technical Spec & Architecture Diagram
+│   │   └── api/
+│   │       ├── auth/route.ts               # POST login/signup/logout, GET verify
+│   │       ├── upload/route.ts             # POST multipart file upload
+│   │       ├── files/route.ts              # GET list all files (auth-protected)
+│   │       ├── file/[id]/
+│   │       │   ├── route.ts                # GET metadata, DELETE instant revoke
+│   │       │   ├── unlock/route.ts         # POST password verification -> token
+│   │       │   └── download/route.ts       # GET stream binary (quota-aware)
+│   │       └── reset/route.ts              # POST restore demo seed files
 │   ├── components/                         # Modular High-Performance UI Components
-│   │   ├── CountdownClock.tsx              # Pure Real-Time Millisecond TTL Ticker
-│   │   ├── Header.tsx                      # Exclusive Brand Lockup, Auth & Health Pill
+│   │   ├── CountdownClock.tsx              # Real-Time Millisecond TTL Ticker
+│   │   ├── Header.tsx                      # Aerodynamic Brand Lockup, Auth & Health Pill
 │   │   ├── InteractiveArchitectureDiagram.tsx # Interactive Node-by-Node Pipeline Visualizer
 │   │   ├── QRCodeModal.tsx                 # QR Code Generator for Instant Mobile Transfer
 │   │   ├── Toast.tsx                       # Glassmorphic Non-Blocking Notification System
 │   │   └── ZeroPageCatalog.tsx             # Interactive Scenario Sandbox & Hero Hub
-│   │
-│   ├── services/                           # Core Cryptographic & Storage Logic
+│   ├── server/                             # Server-Side Persistence & Daemon
+│   │   ├── db.ts                           # JSON database + disk file storage
+│   │   ├── crypto.ts                       # ID gen, PBKDF2, HMAC-SHA256 JWT
+│   │   └── cleanup.ts                      # Background daemon (5s TTL sweeper)
+│   ├── services/                           # Client-Side Storage & Hardware APIs
 │   │   ├── crypto.ts                       # Web Crypto API (AES-256-GCM, PBKDF2, SHA-256)
 │   │   ├── sound.ts                        # Web Audio API Synthesizer (Mechanical Micro-FX)
-│   │   └── storage.ts                      # Reactive Store with Cross-Tab Broadcast Sync
-│   │
+│   │   └── storage.ts                      # Unified API client & local cache fallback
 │   ├── styles/
-│   │   └── globals.css                     # Curated Design System, Glassmorphism & Themes
-│   │
-│   └── types/
-│       └── index.ts                        # Strict TypeScript Data Contracts & Interfaces
-│
-├── package.json                            # Dependencies & Build Scripts
-├── tsconfig.json                           # TypeScript Compiler Options
-└── README.md                               # System Design Technical Documentation
+│   │   └── globals.css                     # Curated Design System, Glassmorphism & Tokens
+│   ├── types/
+│   │   └── index.ts                        # Strict TypeScript Data Contracts & Interfaces
+│   └── proxy.ts                            # Next.js Edge proxy (auth guard + redirects)
+├── data/
+│   ├── db.json                             # Persistent JSON database (auto-created)
+│   └── uploads/                            # Physical binary file storage (auto-created)
+├── docs/                                   # Project documentation for developers & AI agents
+│   ├── OVERVIEW.md                         # High-level project overview
+│   ├── API.md                              # Complete REST API reference
+│   ├── AUTH.md                             # Authentication & JWT flow
+│   ├── ARCHITECTURE.md                     # System architecture & data flow
+│   └── CONTRIBUTING.md                     # Development guide
+├── .env                                    # Environment configuration (gitignored)
+├── .env.example                            # Environment template (committed)
+└── next.config.ts                          # Next.js configuration
 ```
 
 ---
 
-## 🔊 7. Tactile Procedural Audio Synthesizer
-
-Rather than burdening the network with static audio asset files, Vanish incorporates a **Web Audio API procedural sound engine** ([sound.ts](file:///src/services/sound.ts)) generating real-time tactile micro-feedback directly on client hardware:
-- **Mechanical Soft Click**: Sine wave oscillator sweeping from 800Hz to 300Hz over 40ms.
-- **Harmonic Success Chime**: Multi-voice arpeggio ($C_5, E_5, G_5, C_6$) with exponential decay.
-- **Incinerator Burn Sound**: White-noise buffer with exponential decay modeling physical disintegration when a file is manually destroyed.
-- *Fully accessible: respects hardware mute state with instantaneous toggle in the navbar.*
-
----
-
-## 🚀 8. Getting Started & Local Development
+## 🚀 5. Quick Start & Local Development
 
 ### Prerequisites
-- **Node.js**: `v20.x` or later (Node 22 recommended)
-- **npm** / **yarn** / **pnpm**
+- **Node.js**: `v18.x` or later (`Node 20+` recommended)
+- **npm**
 
 ### Installation
 
@@ -245,32 +169,86 @@ cd vanish
 
 # Install dependencies
 npm install
+
+# Copy the environment template
+cp .env.example .env
 ```
 
-### Running the Development Server
+### Development
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser to access the live application.
+Open [http://localhost:3000](http://localhost:3000). The app starts at the **login / dashboard portal**.
 
-### Building for Production
-
-```bash
-# Typecheck with TypeScript
-npx tsc --noEmit
-
-# Production build with Turbopack
-npm run build
-
-# Start production server
-npm run start
-```
+> Note: On Windows with this Next.js version, `--webpack` is configured automatically in `package.json`.
 
 ---
 
-## 📜 9. Academic Project Rights & License
+## ⚙️ 6. Environment Configuration
+
+Copy `.env.example` to `.env` and configure:
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | Server port |
+| `NODE_ENV` | `development` | Environment mode |
+| `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | Public base URL |
+| `JWT_SECRET` | _(required)_ | HMAC-SHA256 signing secret |
+| `JWT_EXPIRES_IN` | `604800` | Token TTL in seconds (7 days) |
+| `STORAGE_DIR` | `./data/uploads` | Physical file storage path |
+| `DB_PATH` | `./data/db.json` | Database JSON file path |
+| `MAX_FILE_SIZE_MB` | `50` | Maximum upload size in MB |
+| `CLEANUP_INTERVAL_MS` | `5000` | Background cleanup sweep interval |
+
+---
+
+## 📡 7. REST API Routes Reference
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/auth` | No | Login, signup, or logout |
+| `GET` | `/api/auth` | Bearer | Verify JWT token |
+| `POST` | `/api/upload` | Cookie/Bearer | Upload a file with TTL options |
+| `GET` | `/api/files` | Cookie/Bearer | List all files for current user |
+| `GET` | `/api/file/:id` | No | Get file metadata & TTL status |
+| `DELETE` | `/api/file/:id` | No | Instant revoke ("Vanish Now") |
+| `POST` | `/api/file/:id/unlock` | No | Password verification -> JWT download token |
+| `GET` | `/api/file/:id/download` | Token | Stream binary download |
+| `POST` | `/api/reset` | No | Restore demo seed data |
+
+See [`docs/API.md`](docs/API.md) for full request/response schemas.
+
+---
+
+## 🔊 8. Tactile Procedural Audio Synthesizer
+
+Rather than burdening the network with static audio asset files, Vanish incorporates a **Web Audio API procedural sound engine** ([sound.ts](file:///src/services/sound.ts)) generating real-time tactile micro-feedback directly on client hardware:
+- **Mechanical Soft Click**: Sine wave oscillator sweeping from 800Hz to 300Hz over 40ms.
+- **Harmonic Success Chime**: Multi-voice arpeggio ($C_5, E_5, G_5, C_6$) with exponential decay.
+- **Incinerator Burn Sound**: White-noise buffer with exponential decay modeling physical disintegration when a file is manually destroyed.
+- *Fully accessible: respects hardware mute state with instantaneous toggle in the navbar.*
+
+---
+
+## 🧪 9. Demo Test Records
+
+On first run (or after `POST /api/reset`), the following demo records are seeded:
+
+| ID | Status | Notes |
+|---|---|---|
+| `demo-active` | Active | 6-hour TTL, 10 download limit |
+| `demo-locked` | Active | Password-protected (use `vanish123`) |
+| `demo-vanished` | Expired | Demonstrates the expired state UI |
+| `demo-exhausted` | Exhausted | Demonstrates the download quota reached UI |
+| `demo-fast` | Active | 30-second TTL demonstration file |
+
+Visit `/f/<id>` to test each state directly.
+
+---
+
+## 📜 10. Academic Project Rights & License
 
 This project is submitted in fulfillment of the requirements for the **Design Project** course at the **Indian Institute of Information Technology Vadodara (IIIT Vadodara)**.
 

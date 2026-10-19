@@ -1,184 +1,212 @@
 'use client';
 
-import React, { useEffect, useState, useTransition } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import Link from 'next/link';
-import { FileRecord, UserSession, AccessLog } from '@/types';
-import { getStoredFiles, deleteFileImmediately, getCurrentUser, resetDemoDatabase, subscribeToStore } from '@/services/storage';
-import { formatBytes } from '@/services/crypto';
-import { playClickSound, playBurnSound } from '@/services/sound';
-import { useToast } from '@/components/Toast';
+import { useRouter } from 'next/navigation';
+import { FileRecord, UserSession } from '@/types';
+import { fetchFiles, getStoredFiles, deleteFileImmediately, resetDemoDatabase, getCurrentUser, subscribeToStore } from '@/services/storage';
+import { playClickSound, playIncinerateSound } from '@/services/sound';
 import CountdownClock from '@/components/CountdownClock';
 import QRCodeModal from '@/components/QRCodeModal';
+import Toast, { ToastNotification } from '@/components/Toast';
 
 export default function DashboardPage() {
-  const { showToast } = useToast();
+  const router = useRouter();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [filter, setFilter] = useState<'all' | 'active' | 'expired'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [user, setUser] = useState<UserSession | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-
-  // Modals
-  const [qrTarget, setQrTarget] = useState<{ url: string; name: string } | null>(null);
-  const [auditTarget, setAuditTarget] = useState<FileRecord | null>(null);
-
+  const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [qrModalFile, setQrModalFile] = useState<FileRecord | null>(null);
+  const [toast, setToast] = useState<ToastNotification | null>(null);
   const [, startTransition] = useTransition();
 
-  const loadData = () => {
-    startTransition(() => {
-      setFiles(getStoredFiles());
-      setUser(getCurrentUser());
-    });
+  const loadData = async () => {
+    try {
+      const user = getCurrentUser();
+      setCurrentUser(user);
+
+      // Load from local store immediately for instant rendering
+      const local = getStoredFiles();
+      if (local.length > 0) {
+        startTransition(() => {
+          setFiles(local);
+        });
+      }
+
+      // Then fetch latest from server
+      const remote = await fetchFiles();
+      if (remote) {
+        startTransition(() => {
+          setFiles(remote);
+          setLoading(false);
+        });
+      }
+    } catch {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     loadData();
-    const unsubscribe = subscribeToStore(loadData);
+
+    const unsubscribe = subscribeToStore(() => {
+      loadData();
+    });
+
     const interval = setInterval(loadData, 4000);
+
     return () => {
       unsubscribe();
       clearInterval(interval);
     };
   }, []);
 
-  const handleVanishNow = (id: string, name: string) => {
-    playBurnSound();
+  const showToast = (t: ToastNotification) => setToast(t);
+
+  const handleDelete = async (id: string, name: string) => {
+    playIncinerateSound();
     deleteFileImmediately(id);
-    setDeleteConfirmId(null);
-    loadData();
+    await loadData();
     showToast({
       type: 'info',
-      title: 'File Incinerated',
-      message: `${name} has been scrubbed from cloud servers.`
+      title: 'Forensically Vanished',
+      message: `${name} and all cryptographic access keys were scrubbed from storage.`
     });
   };
 
-  const handleCopy = (id: string) => {
-    const url = typeof window !== 'undefined' ? `${window.location.origin}/f/${id}` : `http://localhost:3000/f/${id}`;
-    navigator.clipboard.writeText(url);
+  const handleResetData = async () => {
     playClickSound();
-    showToast({
-      type: 'success',
-      title: 'Link Copied',
-      message: 'Share link copied to clipboard.'
-    });
-  };
-
-  const handleReset = () => {
-    playBurnSound();
     resetDemoDatabase();
-    loadData();
+    await loadData();
     showToast({
       type: 'success',
       title: 'Database Reset',
-      message: 'Demo seed files and countdown timers refreshed.'
+      message: 'Initial demo files and access logs have been restored.'
     });
   };
 
+  const handleCopyLink = (id: string) => {
+    playClickSound();
+    const url = typeof window !== 'undefined' ? `${window.location.origin}/f/${id}` : `http://localhost:3000/f/${id}`;
+    navigator.clipboard.writeText(url);
+    showToast({
+      type: 'success',
+      title: 'Link Copied',
+      message: 'Share URL copied to clipboard.'
+    });
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Metrics
   const activeFiles = files.filter((f) => f.status === 'active');
   const expiredFiles = files.filter((f) => f.status !== 'active');
   const totalDownloads = files.reduce((acc, f) => acc + f.downloadCount, 0);
-  const totalSizeBytes = files.reduce((acc, f) => acc + f.size, 0);
+  const totalSizeBytes = activeFiles.reduce((acc, f) => acc + f.size, 0);
 
-  const filteredFiles = files.filter((f) => {
-    if (filter === 'active' && f.status !== 'active') return false;
-    if (filter === 'expired' && f.status === 'active') return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return f.name.toLowerCase().includes(q) || f.id.toLowerCase().includes(q);
+  // Filtered files
+  const filteredFiles = files.filter((file) => {
+    if (filter === 'active' && file.status !== 'active') return false;
+    if (filter === 'expired' && file.status === 'active') return false;
+    if (searchQuery.trim() && !file.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+      return false;
     }
     return true;
   });
 
   return (
-    <div style={{ padding: '36px 0 90px' }}>
+    <div style={{ maxWidth: '1040px', margin: '36px auto 80px', padding: '0 20px' }}>
       
-      {/* Top Header */}
+      {/* Header Bar */}
       <div style={{
         display: 'flex',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         justifyContent: 'space-between',
         flexWrap: 'wrap',
         gap: '16px',
-        marginBottom: '32px'
+        marginBottom: '28px'
       }}>
         <div>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '4px 12px',
-            borderRadius: 'var(--radius-full)',
-            background: 'var(--bg-blue-tint)',
-            border: '1px solid var(--border-blue)',
-            marginBottom: '10px'
-          }}>
-            <span className="pulse-dot"></span>
-            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--blue-700)' }}>
-              PERSONAL CLOUD COMMAND CENTER
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h1 style={{ fontSize: '2.1rem', color: '#0f172a' }}>
+              Command Center
+            </h1>
+            <span className="badge badge-blue">TTL ENGINE LIVE</span>
           </div>
-
-          <h1 style={{ fontSize: '2.5rem', lineHeight: 1.15, color: '#0f172a' }}>
-            Control Center & <span className="blue-text">Audit Ledger</span>
-          </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.94rem' }}>
-            Active session: <strong>{user?.name || 'Meet Dhorajiya'}</strong> ({user?.email || 'meet@iiitv.ac.in'}) • IIIT Vadodara
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '2px' }}>
+            Active ephemeral payloads, automated cryptographic revocations, and forensic scrub records.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
-            onClick={handleReset}
+            onClick={handleResetData}
             className="btn btn-outline btn-sm"
+            title="Reset to default demo files"
           >
-            <span>Reset Demo Data</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+              <path d="M3 3v5h5"></path>
+            </svg>
+            <span>Reset Demo DB</span>
           </button>
+
           <Link
             href="/upload"
             onClick={() => playClickSound()}
             className="btn btn-primary btn-sm"
           >
-            <span>+ Upload & Vanish</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Transmit New File</span>
           </Link>
         </div>
       </div>
 
-      {/* Analytics Cards Grid */}
+      {/* Metrics Row */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
         gap: '14px',
-        marginBottom: '32px'
+        marginBottom: '28px'
       }}>
         
         <div className="glass-panel" style={{ padding: '20px', background: '#ffffff', borderRadius: '14px' }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-            Active Ephemeral Files
+            Active Files
           </div>
-          <div style={{ fontSize: '2.2rem', fontWeight: 800, color: 'var(--blue-600)', marginTop: '2px' }}>
+          <div style={{ fontSize: '2.2rem', fontWeight: 800, color: 'var(--blue-700)', marginTop: '2px' }}>
             {activeFiles.length}
           </div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-soft)' }}>
-            Currently ticking down
+            Counting down in memory
           </div>
         </div>
 
         <div className="glass-panel" style={{ padding: '20px', background: '#ffffff', borderRadius: '14px' }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-            Vanished / Expunged
+            Scrubbed / Expired
           </div>
-          <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+          <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#64748b', marginTop: '2px' }}>
             {expiredFiles.length}
           </div>
-          <div style={{ fontSize: '0.76rem', color: '#16a34a', fontWeight: 600 }}>
-            Physically scrubbed
+          <div style={{ fontSize: '0.76rem', color: 'var(--text-soft)' }}>
+            Zero forensic residue
           </div>
         </div>
 
         <div className="glass-panel" style={{ padding: '20px', background: '#ffffff', borderRadius: '14px' }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-            Cumulative Downloads
+            Lifetime Downloads
           </div>
           <div style={{ fontSize: '2.2rem', fontWeight: 800, color: 'var(--blue-700)', marginTop: '2px' }}>
             {totalDownloads}
@@ -211,19 +239,16 @@ export default function DashboardPage() {
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: '12px',
-          marginBottom: '20px',
-          borderBottom: '1px solid var(--border-subtle)',
-          paddingBottom: '16px'
+          gap: '14px',
+          marginBottom: '20px'
         }}>
-          
-          {/* Status Filters */}
+          {/* Filter Tabs */}
           <div style={{ display: 'flex', gap: '6px' }}>
             <button
               onClick={() => { playClickSound(); setFilter('all'); }}
               className={`btn btn-sm ${filter === 'all' ? 'btn-primary' : 'btn-outline'}`}
             >
-              All Files ({files.length})
+              All Records ({files.length})
             </button>
             <button
               onClick={() => { playClickSound(); setFilter('active'); }}
@@ -235,7 +260,7 @@ export default function DashboardPage() {
               onClick={() => { playClickSound(); setFilter('expired'); }}
               className={`btn btn-sm ${filter === 'expired' ? 'btn-primary' : 'btn-outline'}`}
             >
-              Vanished ({expiredFiles.length})
+              Expired ({expiredFiles.length})
             </button>
           </div>
 
@@ -262,7 +287,11 @@ export default function DashboardPage() {
         </div>
 
         {/* Files List */}
-        {filteredFiles.length === 0 ? (
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--text-muted)' }}>
+            Loading files from server...
+          </div>
+        ) : filteredFiles.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
             No matching files found.
           </div>
@@ -323,98 +352,87 @@ export default function DashboardPage() {
                             <span style={{ color: 'var(--blue-700)', fontWeight: 600 }}>Password Protected</span>
                           </>
                         )}
-                        {file.sha256 && (
+                        {file.isClientEncrypted && (
                           <>
                             <span>•</span>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>
-                              SHA: {file.sha256.substring(0, 8)}...
-                            </span>
+                            <span style={{ color: '#047857', fontWeight: 600 }}>AES-256 E2EE</span>
                           </>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Live Countdown Clock */}
-                  <div style={{ minWidth: '160px' }}>
+                  {/* Countdown Clock / Expiry Status */}
+                  <div style={{ minWidth: '150px', textAlign: 'center' }}>
                     {isActive ? (
-                      <CountdownClock
-                        expiresAt={file.expiresAt}
-                        uploadedAt={file.uploadedAt}
-                        showBar={false}
-                        onExpire={loadData}
-                      />
+                      <div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, marginBottom: '2px' }}>
+                          Vanishes In:
+                        </div>
+                        <CountdownClock
+                          expiresAt={file.expiresAt}
+                          uploadedAt={file.uploadedAt}
+                          size="sm"
+                        />
+                      </div>
                     ) : (
-                      <span className="badge badge-soft">
-                        Vanished from Cloud
+                      <span className="badge badge-soft" style={{ color: '#dc2626' }}>
+                        Forensically Scrubbed
                       </span>
                     )}
                   </div>
 
                   {/* Action Buttons */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    
-                    <Link
-                      href={`/f/${file.id}`}
-                      onClick={() => playClickSound()}
-                      className="btn btn-outline btn-sm"
-                      title="Open recipient download page"
-                    >
-                      <span>Preview</span>
-                    </Link>
-
-                    <button
-                      onClick={() => handleCopy(file.id)}
-                      className="btn btn-outline btn-sm"
-                      title="Copy share link"
-                    >
-                      <span>Link</span>
-                    </button>
-
-                    <button
-                      onClick={() => { playClickSound(); setQrTarget({ url: fileShareUrl, name: file.name }); }}
-                      className="btn btn-outline btn-sm"
-                      title="Scan QR Code on mobile"
-                    >
-                      <span>QR</span>
-                    </button>
-
-                    <button
-                      onClick={() => { playClickSound(); setAuditTarget(file); }}
-                      className="btn btn-outline btn-sm"
-                      title="View Access Audit Logs"
-                    >
-                      <span>Logs ({file.accessLogs.length})</span>
-                    </button>
-
-                    {deleteConfirmId === file.id ? (
-                      <div style={{ display: 'flex', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {isActive && (
+                      <>
                         <button
-                          onClick={() => handleVanishNow(file.id, file.name)}
-                          className="btn btn-sm btn-danger"
-                          style={{ padding: '4px 8px', fontSize: '0.72rem' }}
+                          onClick={() => handleCopyLink(file.id)}
+                          className="btn btn-outline btn-sm"
+                          title="Copy Shareable Link"
                         >
-                          Confirm
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                          <span>Copy</span>
                         </button>
+
                         <button
-                          onClick={() => setDeleteConfirmId(null)}
-                          className="btn btn-sm btn-outline"
-                          style={{ padding: '4px 6px', fontSize: '0.72rem' }}
+                          onClick={() => { playClickSound(); setQrModalFile(file); }}
+                          className="btn btn-outline btn-sm"
+                          title="Generate QR Code"
                         >
-                          ✕
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="3" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="14" width="7" height="7"></rect>
+                            <rect x="3" y="14" width="7" height="7"></rect>
+                          </svg>
                         </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => { playClickSound(); setDeleteConfirmId(file.id); }}
-                        className="btn btn-sm btn-outline"
-                        style={{ color: 'var(--rose-600)' }}
-                        title="Immediately incinerate from cloud"
-                      >
-                        Vanish Now
-                      </button>
+
+                        <Link
+                          href={`/f/${file.id}`}
+                          onClick={() => playClickSound()}
+                          className="btn btn-outline btn-sm"
+                          title="Open Download Portal"
+                        >
+                          <span>Open</span>
+                        </Link>
+                      </>
                     )}
 
+                    <button
+                      onClick={() => handleDelete(file.id, file.name)}
+                      className="btn btn-danger btn-sm"
+                      title="Manual Instant Incineration"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                      </svg>
+                      <span>Vanish Now</span>
+                    </button>
                   </div>
 
                 </div>
@@ -426,101 +444,21 @@ export default function DashboardPage() {
       </div>
 
       {/* QR Code Modal */}
-      {qrTarget && (
+      {qrModalFile && (
         <QRCodeModal
-          url={qrTarget.url}
-          fileName={qrTarget.name}
-          isOpen={true}
-          onClose={() => setQrTarget(null)}
+          isOpen={Boolean(qrModalFile)}
+          onClose={() => setQrModalFile(null)}
+          url={typeof window !== 'undefined' ? `${window.location.origin}/f/${qrModalFile.id}` : `http://localhost:3000/f/${qrModalFile.id}`}
+          fileName={qrModalFile.name}
         />
       )}
 
-      {/* Audit Log Modal */}
-      {auditTarget && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9999,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'rgba(8, 26, 54, 0.75)',
-            backdropFilter: 'blur(8px)',
-            padding: '20px'
-          }}
-          onClick={() => setAuditTarget(null)}
-        >
-          <div
-            className="glass-panel"
-            style={{
-              background: '#ffffff',
-              borderRadius: '16px',
-              padding: '28px',
-              maxWidth: '560px',
-              width: '100%',
-              maxHeight: '80vh',
-              overflowY: 'auto',
-              boxShadow: 'var(--shadow-elevated)'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div>
-                <span className="badge badge-blue">Security Ledger</span>
-                <h3 style={{ fontSize: '1.25rem', marginTop: '4px', color: '#0f172a' }}>
-                  Access Audit Trail
-                </h3>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  {auditTarget.name} ({auditTarget.id})
-                </div>
-              </div>
-              <button
-                onClick={() => setAuditTarget(null)}
-                className="btn btn-outline btn-sm"
-              >
-                ✕ Close
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {auditTarget.accessLogs.map((log: AccessLog) => (
-                <div
-                  key={log.id}
-                  style={{
-                    padding: '12px 14px',
-                    borderRadius: '8px',
-                    background: '#f8fafc',
-                    border: '1px solid var(--border-subtle)',
-                    fontSize: '0.8rem'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <span style={{
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      color: log.action === 'downloaded' ? '#2563eb' : log.action === 'expired' ? '#dc2626' : '#16a34a'
-                    }}>
-                      {log.action}
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      {new Date(log.timestamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-
-                  <div style={{ color: '#334155', fontSize: '0.76rem' }}>
-                    {log.clientSnippet}
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    <span>{log.location}</span>
-                    <span>{log.ipHash}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          notification={toast}
+          onClose={() => setToast(null)}
+        />
       )}
 
     </div>

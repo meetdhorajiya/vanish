@@ -117,3 +117,5 @@ export function playBurnSound() {
     // Ignore audio error
   }
 }
+
+export const playIncinerateSound = playBurnSound;

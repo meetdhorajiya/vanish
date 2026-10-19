@@ -3,15 +3,17 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { playSuccessSound } from '@/services/sound';
 
-interface Toast {
+export interface Toast {
   id: string;
   type: 'success' | 'info' | 'warning' | 'error';
   title: string;
   message?: string;
 }
 
-interface ToastContextType {
-  showToast: (toast: Omit<Toast, 'id'>) => void;
+export type ToastNotification = Omit<Toast, 'id'>;
+
+export interface ToastContextType {
+  showToast: (toast: ToastNotification) => void;
 }
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -114,5 +116,73 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         ))}
       </div>
     </ToastContext.Provider>
+  );
+}
+
+export default function ToastComponent({
+  notification,
+  onClose,
+}: {
+  notification?: ToastNotification | null;
+  onClose?: () => void;
+}) {
+  if (!notification) return null;
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: '24px',
+        right: '24px',
+        zIndex: 9999,
+        pointerEvents: 'auto',
+        background: 'rgba(15, 23, 42, 0.94)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: notification.type === 'error' ? '1px solid #ef4444' : '1px solid rgba(59, 130, 246, 0.35)',
+        borderRadius: '12px',
+        padding: '12px 16px',
+        color: '#ffffff',
+        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 0 15px rgba(59, 130, 246, 0.2)',
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '12px',
+        maxWidth: '380px',
+        cursor: 'pointer',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: '24px',
+          height: '24px',
+          borderRadius: '50%',
+          background: notification.type === 'error' ? '#ef4444' : '#2563eb',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          marginTop: '1px',
+        }}
+      >
+        {notification.type === 'error' ? (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        ) : (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        )}
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 600, fontSize: '0.86rem', color: '#f8fafc' }}>{notification.title}</div>
+        {notification.message && (
+          <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '2px', lineHeight: 1.4 }}>
+            {notification.message}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
